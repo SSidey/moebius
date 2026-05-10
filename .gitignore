@@ -1,0 +1,8 @@
+# Rust build artefacts
+src/moeb/target/
+
+# Moeb secrets — must never be committed
+.moeb/.secrets
+
+# Claude Code local session state — machine-specific, must not be committed
+.claude/settings.local.json

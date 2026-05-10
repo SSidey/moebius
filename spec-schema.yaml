@@ -1,0 +1,111 @@
+# Specification Schema
+# All specification files in harness/<domain>/ must conform to this structure.
+# Filenames must follow the convention: <domain>.<slug>.md
+# e.g. harness/auth/auth.token-rotation.md
+
+spec:
+
+  # ---------------------------------------------------------------------------
+  # Identity
+  # ---------------------------------------------------------------------------
+
+  title: string
+  # Human-readable name of this specification.
+  # Example: "Token rotation"
+
+  domain: string
+  # The domain or feature area this spec belongs to.
+  # Must match the folder name under harness/.
+  # Example: "auth"
+
+  # ---------------------------------------------------------------------------
+  # Requirement
+  # ---------------------------------------------------------------------------
+
+  raw_requirement: string
+  # The verbatim requirement as received — ticket text, brief, user story, etc.
+  # Do not paraphrase. Preserve original wording exactly.
+
+  description: string
+  # A technical summary of the approach or solution.
+  # Distinct from the raw requirement — this captures the *how*, not the *what*.
+
+  # ---------------------------------------------------------------------------
+  # Architectural diagram
+  # ---------------------------------------------------------------------------
+
+  # Mandatory. Must be present in every specification.
+  # Embed a Mermaid diagram block directly in the markdown body.
+  # Use the following format in the .md file:
+  #
+  # ```mermaid
+  # graph TD
+  #   A[Component] --> B[Component]
+  # ```
+
+  diagram: required
+
+  # ---------------------------------------------------------------------------
+  # Backlinks
+  # ---------------------------------------------------------------------------
+
+  backlinks:
+
+    parents:
+      # Links to parent specifications or the README.
+      # Use relative paths from the repo root.
+      - label: string       # Display name of the linked document
+        path: string        # Relative path e.g. README.md or harness/auth/auth.overview.md
+        purpose: string     # Why this link exists e.g. "root index", "parent spec"
+
+    external:
+      # Links to any external source required for citation or traceability.
+      # Grouped by their purpose/category.
+      - label: string       # Display name e.g. "JIRA-1234", "RFC 6749"
+        url: string         # Full URL
+        purpose: string     # Category of the link e.g. "ticket", "policy", "rubric", "ADR", "RFC"
+
+  # ---------------------------------------------------------------------------
+  # Implementation steps
+  # ---------------------------------------------------------------------------
+
+  steps:
+    # Ordered list of implementation tasks.
+    # Each step must contain enough detail for an agent or developer to execute
+    # without ambiguity. Steps are executed in sequence.
+    - title: string         # Short name for the step
+      description: string   # Full description of the task and how to carry it out
+
+  # ---------------------------------------------------------------------------
+  # Decisions
+  # ---------------------------------------------------------------------------
+
+  decisions:
+    # Settled architectural or technical choices made during design.
+    # These are authoritative — later specifications must not contradict them.
+    # Later specs should reference relevant decisions via backlinks.
+    - title: string         # Name of the decision
+      rationale: string     # Why this choice was made
+      alternatives:         # Other options that were considered and rejected
+        - option: string
+          reason_rejected: string
+      consequences: string  # What this decision commits the project to going forward
+
+  # ---------------------------------------------------------------------------
+  # Rubric
+  # ---------------------------------------------------------------------------
+
+  rubric:
+    # Quality gates that govern acceptance of changes produced from this spec.
+    # Structured entries are used for measurable criteria.
+    # Free-form entries are used for qualitative criteria.
+
+    structured:
+      - name: string        # Name of the criterion e.g. "Test coverage"
+        description: string # What is being measured
+        threshold: string   # The required value or bound e.g. ">= 80%"
+        pass_condition: string  # How pass/fail is determined e.g. "CI coverage report >= threshold"
+
+    qualitative:
+      - name: string        # Name of the criterion e.g. "Code readability"
+        description: string # What good looks like — described in plain language
