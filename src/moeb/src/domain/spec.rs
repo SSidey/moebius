@@ -35,10 +35,12 @@ impl SpecService {
         if !working_dir.exists() {
             bail!(".moeb/ not found. Run `moeb init` first.");
         }
-        self.run_in(input, working_dir)
+        let cfg = crate::config::MoebConfig::load().unwrap_or_default();
+        let limit = cfg.effective_spec_retry_limit();
+        self.run_in(input, working_dir, limit)
     }
 
-    pub(crate) fn run_in(&self, input: &str, working_dir: &Path) -> Result<()> {
+    pub(crate) fn run_in(&self, input: &str, working_dir: &Path, retry_limit: u32) -> Result<()> {
         let asset = Prompts::get(PROMPT_FILE)
             .context("Embedded prompt template 'spec.prompt' not found in binary")?;
         let template = std::str::from_utf8(asset.data.as_ref())
@@ -46,23 +48,37 @@ impl SpecService {
 
         let prompt = template.replace(INPUT_TOKEN, input);
 
-        eprintln!("[moeb] generating specification...");
-        let raw = crate::agent::run_agent_loop(self.ai.as_ref(), &prompt, working_dir)?;
+        eprintln!("[moeb] generating specification (up to {} attempt(s))...", retry_limit);
 
-        if raw.is_empty() {
-            bail!("Agent returned an empty response.");
-        }
+        let mut last_err: anyhow::Error = anyhow::anyhow!("no attempts made");
 
-        let (domain, slug, body) = parse_frontmatter(&raw).with_context(|| {
-            format!(
-                "Could not parse frontmatter from agent output.\n\nRaw output:\n{}",
-                raw
-            )
-        })?;
+        let (domain, slug, body) = 'retry: {
+            for attempt in 1..=retry_limit {
+                let raw = match crate::agent::run_agent_loop(self.ai.as_ref(), &prompt, working_dir) {
+                    Ok(r) => r,
+                    Err(e) => return Err(e),
+                };
 
-        validate_sections(&body).with_context(|| {
-            format!("Spec failed schema validation.\n\nRaw output:\n{}", raw)
-        })?;
+                if raw.is_empty() {
+                    return Err(anyhow::anyhow!("Agent returned an empty response."));
+                }
+
+                let result = parse_frontmatter(&raw)
+                    .and_then(|(domain, slug, body)| {
+                        validate_sections(&body)?;
+                        Ok((domain, slug, body))
+                    });
+
+                match result {
+                    Ok(parsed) => break 'retry parsed,
+                    Err(e) => {
+                        eprintln!("[moeb] spec attempt {}/{} failed: {}", attempt, retry_limit, e);
+                        last_err = e;
+                    }
+                }
+            }
+            bail!("spec generation failed after {} attempt(s). Last error: {}", retry_limit, last_err);
+        };
 
         let spec_dir = working_dir.join("specifications").join(&domain);
         fs::create_dir_all(&spec_dir).with_context(|| {
@@ -382,7 +398,7 @@ mod integration_tests {
             AgentResponse::Text(spec_doc("auth", "token-rotation")),
             AgentResponse::Text("Registered.".to_string()),
         ]);
-        SpecService::new(ai).run_in("rotate tokens", tmp.path()).unwrap();
+        SpecService::new(ai).run_in("rotate tokens", tmp.path(), 1).unwrap();
 
         let spec_path = tmp.path().join("specifications/auth/auth.token-rotation.md");
         assert!(spec_path.exists(), "spec file must be created");
@@ -413,12 +429,51 @@ mod integration_tests {
             }]),
             AgentResponse::Text("Done.".to_string()),
         ]);
-        SpecService::new(ai).run_in("rotate tokens", tmp.path()).unwrap();
+        SpecService::new(ai).run_in("rotate tokens", tmp.path(), 1).unwrap();
 
         let readme = fs::read_to_string(tmp.path().join("README.md")).unwrap();
         assert!(
             readme.contains("specifications/auth/auth.token-rotation.md"),
             "README must contain the spec link"
+        );
+    }
+
+    #[test]
+    fn run_in_retries_on_validation_failure() {
+        let tmp = tempfile::tempdir().unwrap();
+        setup_harness(&tmp);
+
+        let ai = MockAi::new(vec![
+            // first attempt: no frontmatter — validation will fail
+            AgentResponse::Text("No frontmatter here, just prose.".to_string()),
+            // second attempt: valid spec
+            AgentResponse::Text(spec_doc("auth", "token-rotation")),
+            // readme-link agent
+            AgentResponse::Text("Registered.".to_string()),
+        ]);
+        SpecService::new(ai).run_in("rotate tokens", tmp.path(), 2).unwrap();
+
+        let spec_path = tmp.path().join("specifications/auth/auth.token-rotation.md");
+        assert!(spec_path.exists(), "spec file must be created after retry");
+    }
+
+    #[test]
+    fn run_in_fails_after_exhausting_retries() {
+        let tmp = tempfile::tempdir().unwrap();
+        setup_harness(&tmp);
+
+        let ai = MockAi::new(vec![
+            AgentResponse::Text("No frontmatter — attempt 1.".to_string()),
+            AgentResponse::Text("No frontmatter — attempt 2.".to_string()),
+        ]);
+        let err = SpecService::new(ai)
+            .run_in("rotate tokens", tmp.path(), 2)
+            .unwrap_err();
+        let msg = err.to_string();
+        assert!(
+            msg.contains("failed after 2 attempt(s)"),
+            "expected exhaustion message, got: {}",
+            msg
         );
     }
 }

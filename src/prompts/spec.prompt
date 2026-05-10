@@ -28,5 +28,7 @@ After the frontmatter, produce a markdown document with sections in this exact o
 
 Follow the field descriptions in spec-schema.yaml precisely. Each step must be detailed enough for an agent or developer to execute without ambiguity. Each decision must record rationale, rejected alternatives, and consequences.
 
+CRITICAL: The very first characters of your response must be the three-character sequence "---" on its own line, with absolutely no text, whitespace, or BOM before it. Do not write any introduction, explanation, or preamble before the frontmatter block. A response that does not start with "---" is invalid, will be rejected immediately, and the run will be retried at additional cost. Start your response now with "---".
+
 Requirement:
 {{input}}

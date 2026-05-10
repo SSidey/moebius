@@ -25,6 +25,13 @@ pub fn secrets_path() -> PathBuf {
 #[derive(Debug, Default, Serialize, Deserialize)]
 pub struct MoebConfig {
     pub active_adapter: Option<String>,
+    pub spec_retry_limit: Option<u32>,
+}
+
+impl MoebConfig {
+    pub fn effective_spec_retry_limit(&self) -> u32 {
+        self.spec_retry_limit.unwrap_or(3)
+    }
 }
 
 impl MoebConfig {
@@ -151,5 +158,22 @@ mod tests {
         // Simulate what init does: create .moeb/ but never call MoebConfig::save()
         let config_file = Path::new(MOEB_DIR).join(CONFIG_FILE);
         assert!(!config_file.exists(), "config.toml must not exist after init");
+    }
+
+    #[test]
+    fn effective_spec_retry_limit_defaults_to_three() {
+        let config = MoebConfig::default();
+        assert_eq!(config.effective_spec_retry_limit(), 3);
+    }
+
+    #[test]
+    fn effective_spec_retry_limit_respects_config_value() {
+        let (_dir, _guard) = in_temp_dir();
+        fs::create_dir_all(MOEB_DIR).unwrap();
+        let mut config = MoebConfig::default();
+        config.spec_retry_limit = Some(5);
+        config.save().unwrap();
+        let loaded = MoebConfig::load().unwrap();
+        assert_eq!(loaded.effective_spec_retry_limit(), 5);
     }
 }
