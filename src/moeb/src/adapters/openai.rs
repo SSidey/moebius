@@ -2,6 +2,7 @@ use anyhow::{Context, Result};
 use serde_json::json;
 
 use crate::config::Secrets;
+use crate::ports::AiPort;
 use super::{Adapter, AgentResponse, Message, ToolCall, ToolDef};
 
 const API_URL: &str = "https://api.openai.com/v1/chat/completions";
@@ -23,6 +24,12 @@ impl OpenAiAdapter {
             api_key,
             client: reqwest::blocking::Client::new(),
         })
+    }
+}
+
+impl AiPort for OpenAiAdapter {
+    fn send(&self, messages: &[Message], tools: &[ToolDef]) -> Result<AgentResponse> {
+        Adapter::send(self, messages, tools)
     }
 }
 

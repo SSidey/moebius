@@ -1,10 +1,15 @@
 use clap::{Parser, Subcommand};
 
+use adapters::cli::CliAdapter;
+use ports::{InitPort, RunPort, SpecPort, UseAdapterPort};
+
 pub mod adapters;
 pub mod agent;
 pub mod assets;
 pub mod commands;
 pub mod config;
+pub mod domain;
+pub mod ports;
 
 #[derive(Parser)]
 #[command(name = "moeb", about = "Declarative harness kernel")]
@@ -30,10 +35,11 @@ enum Commands {
 
 fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
+    let adapter = CliAdapter;
     match cli.command {
-        Commands::Init => commands::init::run(),
-        Commands::Use { adapter } => commands::use_cmd::run(&adapter),
-        Commands::Spec { input } => commands::spec::run(&input.join(" ")),
-        Commands::Run { spec } => commands::run::run(&spec),
+        Commands::Init => InitPort::run(&adapter),
+        Commands::Use { adapter: name } => UseAdapterPort::run(&adapter, &name),
+        Commands::Spec { input } => SpecPort::run(&adapter, &input.join(" ")),
+        Commands::Run { spec } => RunPort::run(&adapter, &spec),
     }
 }

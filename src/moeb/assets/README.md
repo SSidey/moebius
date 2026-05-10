@@ -62,27 +62,6 @@ Organised by domain. Add a new `###` subsection for each domain as it is introdu
 | **Description** | A single sentence describing the specification's subject and scope |
 | **Path** | The relative path to the specification file from the repo root |
 
-### harness
-
-| Name | Description | Path |
-|------|-------------|------|
-| Declarative Specification Harness | Base harness structure, policies, schema, and naming conventions governing the specification system | [specifications/harness/harness.base-harness.md](specifications/harness/harness.base-harness.md) |
-| README Scope Boundary Clarification | Adds an explicit repository-layer statement to README.md distinguishing the harness meta-layer from the src/ target layer | [specifications/harness/harness.readme-scope-boundary.md](specifications/harness/harness.readme-scope-boundary.md) |
-| Registration at Creation | Requires that README index registration is atomic with spec file creation, eliminating the deferred-registration pattern | [specifications/harness/harness.registration-at-creation.md](specifications/harness/harness.registration-at-creation.md) |
-| Specifications Directory Rename and .moeb/ Path Resolution | Renames harness/ to specifications/ throughout the project and updates moeb run prompt paths to resolve correctly from the project root after moeb init | [specifications/harness/harness.specifications-dir-rename.md](specifications/harness/harness.specifications-dir-rename.md) |
-
-### moeb
-
-| Name | Description | Path |
-|------|-------------|------|
-| Moeb Kernel | Rust CLI kernel implementing moeb init, moeb use, moeb spec, and moeb run with an AI agent loop and per-project .moeb/ harness directory | [specifications/moeb/moeb.kernel.md](specifications/moeb/moeb.kernel.md) |
-
-### vcs
-
-| Name | Description | Path |
-|------|-------------|------|
-| Git Initialisation and Initial Commit | Initialises git source control, establishes the .gitignore, creates the initial commit, and settles the policy that all subsequent commits are user-driven | [specifications/vcs/vcs.git-init.md](specifications/vcs/vcs.git-init.md) |
-
 ---
 
 ## Schema reference

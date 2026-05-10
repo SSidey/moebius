@@ -1,3 +1,5 @@
+pub mod cli;
+pub mod embedded_assets;
 pub mod openai;
 
 use anyhow::Result;

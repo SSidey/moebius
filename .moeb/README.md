@@ -76,6 +76,7 @@ Organised by domain. Add a new `###` subsection for each domain as it is introdu
 | Name | Description | Path |
 |------|-------------|------|
 | Moeb Kernel | Rust CLI kernel implementing moeb init, moeb use, moeb spec, and moeb run with an AI agent loop and per-project .moeb/ harness directory | [specifications/moeb/moeb.kernel.md](specifications/moeb/moeb.kernel.md) |
+| Moeb Hexagonal Architecture | The Moeb kernel must be restructured using hexagonal (also known as ports and adapters) architecture | [specifications/moeb/moeb.hex-architecture.md](specifications/moeb/moeb.hex-architecture.md) |
 
 ### vcs
 

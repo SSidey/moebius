@@ -3,14 +3,15 @@ use serde_json::json;
 use std::fs;
 use std::path::Path;
 
-use crate::adapters::{Adapter, AgentResponse, Message, ToolDef};
+use crate::adapters::{AgentResponse, Message, ToolDef};
+use crate::ports::AiPort;
 
 const MAX_TURNS: usize = 50;
 
 /// Drive an agent loop until the model produces a plain text response or MAX_TURNS is reached.
 /// All file tool paths are resolved relative to `working_dir`.
 pub fn run_agent_loop(
-    adapter: &dyn Adapter,
+    adapter: &dyn AiPort,
     initial_prompt: &str,
     working_dir: &Path,
 ) -> Result<String> {
