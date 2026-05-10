@@ -80,6 +80,7 @@ Organised by domain. Add a new `###` subsection for each domain as it is introdu
 | Moeb Init Configuration File Issue | Resolves an issue where `moeb init` inappropriately creates `config.toml` in the `.moeb/` directory | [specifications/moeb/moeb.init-config-file-issue.md](specifications/moeb/moeb.init-config-file-issue.md) |
 | Ensure Bundling of Prompt Template Files with Moeb Binary | Specifies the bundling process to include prompt template files with the moeb binary. | [specifications/moeb/moeb.prompt-template-bundling.md](specifications/moeb/moeb.prompt-template-bundling.md) |
 | Spec Command Output Enforcement and File Persistence | Updates spec.prompt to enforce schema compliance, validates AI output against spec-schema.yaml, and writes the result to the correct .moeb/specifications path | [specifications/moeb/moeb.spec-output-enforcement.md](specifications/moeb/moeb.spec-output-enforcement.md) |
+| Moeb run and spec update to ensure linking and automatic files | moeb run must automatically create or update files as required in the specification supplied, moeb spec must cause a link in the README.md to be created|[specifications/moeb/moeb.specification-update-and-readme-linking.md](specifications/moeb/moeb.specification-update-and-readme-linking.md)|
 
 ### vcs
 

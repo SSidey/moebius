@@ -19,17 +19,21 @@ pub fn run_agent_loop(
     let mut messages: Vec<Message> = vec![Message::User(initial_prompt.to_string())];
 
     for turn in 0..MAX_TURNS {
-        let response = adapter.send(&messages, &tools)?;
+        let response = adapter
+            .send(&messages, &tools)
+            .with_context(|| format!("AI adapter call failed on turn {}", turn + 1))?;
 
         match response {
             AgentResponse::Text(text) => {
+                eprintln!("[moeb] agent finished after {} turn(s)", turn + 1);
                 return Ok(text);
             }
 
             AgentResponse::ToolCalls(calls) => {
                 eprintln!("[moeb] turn {}: {} tool call(s)", turn + 1, calls.len());
                 for call in &calls {
-                    eprintln!("  → {}({})", call.name, call.arguments);
+                    let preview = truncate(&call.arguments, 120);
+                    eprintln!("  → {}({})", call.name, preview);
                 }
 
                 messages.push(Message::AssistantToolCalls(calls.clone()));
@@ -56,7 +60,7 @@ pub fn run_agent_loop(
     }
 
     eprintln!(
-        "Warning: agent loop reached the maximum of {} turns and was halted.",
+        "[moeb] warning: agent loop reached the maximum of {} turns and was halted.",
         MAX_TURNS
     );
     Ok(String::new())
@@ -150,5 +154,13 @@ fn execute_tool(name: &str, arguments: &str, working_dir: &Path) -> Result<Strin
         }
 
         other => anyhow::bail!("Unknown tool '{}'. Available: read_file, write_file, list_directory", other),
+    }
+}
+
+fn truncate(s: &str, max: usize) -> String {
+    if s.len() <= max {
+        s.to_string()
+    } else {
+        format!("{}…", &s[..max])
     }
 }
