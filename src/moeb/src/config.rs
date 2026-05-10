@@ -29,11 +29,12 @@ pub struct MoebConfig {
 
 impl MoebConfig {
     pub fn load() -> Result<Self> {
+        if !moeb_dir().exists() {
+            anyhow::bail!("No .moeb/ directory found. Run `moeb init` first.");
+        }
         let path = config_path();
         if !path.exists() {
-            anyhow::bail!(
-                "No .moeb/ directory found. Run `moeb init` first."
-            );
+            return Ok(Self::default());
         }
         let text = fs::read_to_string(&path)
             .with_context(|| format!("Failed to read {}", path.display()))?;
@@ -95,4 +96,60 @@ fn parse_kv(text: &str) -> HashMap<String, String> {
             Some((k.trim().to_string(), v.trim().to_string()))
         })
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::env;
+    use std::sync::{Mutex, MutexGuard};
+    use tempfile::TempDir;
+
+    static CWD_LOCK: Mutex<()> = Mutex::new(());
+
+    fn in_temp_dir() -> (TempDir, MutexGuard<'static, ()>) {
+        let guard = CWD_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let dir = tempfile::tempdir().expect("tempdir");
+        env::set_current_dir(dir.path()).expect("set_current_dir");
+        (dir, guard)
+    }
+
+    #[test]
+    fn load_fails_without_moeb_dir() {
+        let (_dir, _guard) = in_temp_dir();
+        let err = MoebConfig::load().unwrap_err();
+        assert!(
+            err.to_string().contains("moeb init"),
+            "expected init hint, got: {err}"
+        );
+    }
+
+    #[test]
+    fn load_returns_default_when_config_toml_absent() {
+        let (_dir, _guard) = in_temp_dir();
+        fs::create_dir_all(MOEB_DIR).unwrap();
+        let config = MoebConfig::load().expect("load should succeed");
+        assert!(config.active_adapter.is_none());
+    }
+
+    #[test]
+    fn load_reads_saved_config() {
+        let (_dir, _guard) = in_temp_dir();
+        fs::create_dir_all(MOEB_DIR).unwrap();
+        let mut config = MoebConfig::default();
+        config.active_adapter = Some("openai".to_string());
+        config.save().unwrap();
+        assert!(Path::new(MOEB_DIR).join(CONFIG_FILE).exists(), "save must write config.toml");
+        let loaded = MoebConfig::load().unwrap();
+        assert_eq!(loaded.active_adapter.as_deref(), Some("openai"));
+    }
+
+    #[test]
+    fn init_does_not_write_config_toml() {
+        let (_dir, _guard) = in_temp_dir();
+        fs::create_dir_all(MOEB_DIR).unwrap();
+        // Simulate what init does: create .moeb/ but never call MoebConfig::save()
+        let config_file = Path::new(MOEB_DIR).join(CONFIG_FILE);
+        assert!(!config_file.exists(), "config.toml must not exist after init");
+    }
 }

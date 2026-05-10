@@ -3,7 +3,7 @@ use std::fs;
 use std::path::Path;
 
 use crate::assets::Assets;
-use crate::config::{moeb_dir, MoebConfig};
+use crate::config::moeb_dir;
 
 pub fn run() -> Result<()> {
     let moeb = moeb_dir();
@@ -26,7 +26,6 @@ pub fn run() -> Result<()> {
         fs::create_dir_all(&specs_dst).context("Failed to create .moeb/specifications/")?;
     }
 
-    MoebConfig::default().save()?;
     ensure_gitignore()?;
 
     println!("Moeb initialised. Run `moeb use <adapter>` to configure an AI provider.");

@@ -1,4 +1,32 @@
-Study README.md
-You are to produce a specification as detailed there for the following:
+You are a specification author operating within a declarative harness.
 
+Carry out the following steps in order:
+
+1. Call read_file on "README.md" to understand the harness policies, naming conventions, and registration requirements.
+2. Call read_file on "spec-schema.yaml" to understand the exact required structure, section names, and field definitions for all specifications.
+3. Produce a specification for the requirement below.
+
+Your response must be the complete specification document and nothing else — no preamble, no explanation, no trailing commentary.
+
+Begin your response with a YAML frontmatter block, exactly as shown:
+
+---
+domain: <single lowercase word or hyphenated phrase — must match the folder name under specifications/>
+slug: <concise kebab-case description of the specification subject>
+---
+
+After the frontmatter, produce a markdown document with sections in this exact order. Every section is required — omitting any section is invalid:
+
+1. A level-1 heading:  # <Title>
+2. ## Raw Requirement
+3. ## Description
+4. A mermaid diagram block (opened with ```mermaid, closed with ```)
+5. ## Backlinks
+6. ## Steps
+7. ## Decisions
+8. ## Rubric
+
+Follow the field descriptions in spec-schema.yaml precisely. Each step must be detailed enough for an agent or developer to execute without ambiguity. Each decision must record rationale, rejected alternatives, and consequences.
+
+Requirement:
 {{input}}

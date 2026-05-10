@@ -3,9 +3,10 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
+use crate::assets::Prompts;
 use crate::ports::AiPort;
 
-const PROMPT_FILE: &str = "src/prompts/run.prompt";
+const PROMPT_FILE: &str = "run.prompt";
 const SPEC_TOKEN: &str = "{{spec}}";
 const SPECS_DIR: &str = ".moeb/specifications";
 
@@ -44,8 +45,10 @@ impl RunService {
 
         let rel_path = spec_path.to_string_lossy().replace('\\', "/");
 
-        let template = fs::read_to_string(PROMPT_FILE)
-            .with_context(|| format!("Cannot read prompt template '{PROMPT_FILE}'. Ensure src/prompts/run.prompt exists."))?;
+        let asset = Prompts::get(PROMPT_FILE)
+            .context("Embedded prompt template 'run.prompt' not found in binary")?;
+        let template = std::str::from_utf8(asset.data.as_ref())
+            .context("run.prompt is not valid UTF-8")?;
 
         let prompt = template.replace(SPEC_TOKEN, &rel_path);
 

@@ -77,6 +77,9 @@ Organised by domain. Add a new `###` subsection for each domain as it is introdu
 |------|-------------|------|
 | Moeb Kernel | Rust CLI kernel implementing moeb init, moeb use, moeb spec, and moeb run with an AI agent loop and per-project .moeb/ harness directory | [specifications/moeb/moeb.kernel.md](specifications/moeb/moeb.kernel.md) |
 | Moeb Hexagonal Architecture | The Moeb kernel must be restructured using hexagonal (also known as ports and adapters) architecture | [specifications/moeb/moeb.hex-architecture.md](specifications/moeb/moeb.hex-architecture.md) |
+| Moeb Init Configuration File Issue | Resolves an issue where `moeb init` inappropriately creates `config.toml` in the `.moeb/` directory | [specifications/moeb/moeb.init-config-file-issue.md](specifications/moeb/moeb.init-config-file-issue.md) |
+| Ensure Bundling of Prompt Template Files with Moeb Binary | Specifies the bundling process to include prompt template files with the moeb binary. | [specifications/moeb/moeb.prompt-template-bundling.md](specifications/moeb/moeb.prompt-template-bundling.md) |
+| Spec Command Output Enforcement and File Persistence | Updates spec.prompt to enforce schema compliance, validates AI output against spec-schema.yaml, and writes the result to the correct .moeb/specifications path | [specifications/moeb/moeb.spec-output-enforcement.md](specifications/moeb/moeb.spec-output-enforcement.md) |
 
 ### vcs
 
