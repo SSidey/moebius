@@ -1,4 +1,4 @@
-study README.md
+study .moeb/README.md
 study {{spec}}
 
 Choose the next most important part to implement for the specification and execute it

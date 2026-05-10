@@ -17,13 +17,13 @@ pub fn run() -> Result<()> {
     move_or_extract("README.md")?;
     move_or_extract("spec-schema.yaml")?;
 
-    let harness_src = Path::new("harness");
-    let harness_dst = moeb.join("harness");
-    if harness_src.exists() {
-        fs::rename(harness_src, &harness_dst)
-            .with_context(|| format!("Failed to move harness/ to {}", harness_dst.display()))?;
+    let specs_src = Path::new("specifications");
+    let specs_dst = moeb.join("specifications");
+    if specs_src.exists() {
+        fs::rename(specs_src, &specs_dst)
+            .with_context(|| format!("Failed to move specifications/ to {}", specs_dst.display()))?;
     } else {
-        fs::create_dir_all(&harness_dst).context("Failed to create .moeb/harness/")?;
+        fs::create_dir_all(&specs_dst).context("Failed to create .moeb/specifications/")?;
     }
 
     MoebConfig::default().save()?;

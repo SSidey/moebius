@@ -1,7 +1,7 @@
 # Specification Schema
-# All specification files in harness/<domain>/ must conform to this structure.
+# All specification files in specifications/<domain>/ must conform to this structure.
 # Filenames must follow the convention: <domain>.<slug>.md
-# e.g. harness/auth/auth.token-rotation.md
+# e.g. specifications/auth/auth.token-rotation.md
 
 spec:
 
@@ -15,7 +15,7 @@ spec:
 
   domain: string
   # The domain or feature area this spec belongs to.
-  # Must match the folder name under harness/.
+  # Must match the folder name under specifications/.
   # Example: "auth"
 
   # ---------------------------------------------------------------------------
@@ -55,7 +55,7 @@ spec:
       # Links to parent specifications or the README.
       # Use relative paths from the repo root.
       - label: string       # Display name of the linked document
-        path: string        # Relative path e.g. README.md or harness/auth/auth.overview.md
+        path: string        # Relative path e.g. README.md or specifications/auth/auth.overview.md
         purpose: string     # Why this link exists e.g. "root index", "parent spec"
 
     external:

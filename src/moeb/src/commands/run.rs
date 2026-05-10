@@ -8,12 +8,12 @@ use crate::config::MoebConfig;
 
 const PROMPT_FILE: &str = "src/prompts/run.prompt";
 const SPEC_TOKEN: &str = "{{spec}}";
-const HARNESS_DIR: &str = ".moeb/harness";
+const SPECS_DIR: &str = ".moeb/specifications";
 
 pub fn run(spec: &str) -> Result<()> {
-    let harness = Path::new(HARNESS_DIR);
+    let harness = Path::new(SPECS_DIR);
     if !harness.exists() {
-        anyhow::bail!(".moeb/harness/ not found. Run `moeb init` first.");
+        anyhow::bail!(".moeb/specifications/ not found. Run `moeb init` first.");
     }
 
     let matches = find_specs(harness, spec)?;
@@ -22,7 +22,7 @@ pub fn run(spec: &str) -> Result<()> {
         0 => anyhow::bail!(
             "No specification found matching '{}' under {}.",
             spec,
-            HARNESS_DIR
+            SPECS_DIR
         ),
         1 => matches.into_iter().next().unwrap(),
         _ => {
@@ -34,13 +34,9 @@ pub fn run(spec: &str) -> Result<()> {
         }
     };
 
-    // Path relative to .moeb/ for use in the prompt (e.g. harness/moeb/moeb.kernel.md)
-    let moeb_dir = Path::new(".moeb");
-    let rel_path = spec_path
-        .strip_prefix(moeb_dir)
-        .unwrap_or(&spec_path)
-        .to_string_lossy()
-        .replace('\\', "/");
+    // Full project-root-relative path so the agent can resolve it from the working directory
+    // e.g. .moeb/specifications/moeb/moeb.kernel.md
+    let rel_path = spec_path.to_string_lossy().replace('\\', "/");
 
     let template = fs::read_to_string(PROMPT_FILE)
         .with_context(|| format!("Cannot read prompt template '{PROMPT_FILE}'. Ensure src/prompts/run.prompt exists."))?;
