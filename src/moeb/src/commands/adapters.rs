@@ -1,0 +1,27 @@
+use anyhow::Result;
+
+use crate::config::{MoebConfig, Secrets};
+
+const KNOWN_ADAPTERS: &[&str] = &["openai"];
+
+fn secret_key_for(adapter: &str) -> Option<&'static str> {
+    match adapter {
+        "openai" => Some("OPENAI_API_KEY"),
+        _ => None,
+    }
+}
+
+pub fn run() -> Result<()> {
+    let config = MoebConfig::load().unwrap_or_default();
+    let secrets = Secrets::load().unwrap_or_else(|_| Secrets::empty());
+
+    println!("{:<12} {:<16} {}", "ADAPTER", "STATE", "ACTIVE");
+    for &name in KNOWN_ADAPTERS {
+        let secret_key = secret_key_for(name).unwrap_or("");
+        let configured = !secret_key.is_empty() && secrets.get(secret_key).is_some();
+        let state = if configured { "configured" } else { "not configured" };
+        let active = if config.active_adapter.as_deref() == Some(name) { "yes" } else { "no" };
+        println!("{:<12} {:<16} {}", name, state, active);
+    }
+    Ok(())
+}

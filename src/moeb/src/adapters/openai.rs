@@ -1,27 +1,33 @@
 use anyhow::{Context, Result};
 use serde_json::json;
 
-use crate::config::Secrets;
+use crate::config::{MoebConfig, Secrets};
 use crate::ports::AiPort;
 use super::{Adapter, AgentResponse, Message, ToolCall, ToolDef};
 
 const API_URL: &str = "https://api.openai.com/v1/chat/completions";
-const MODEL: &str = "gpt-4o";
+const DEFAULT_MODEL: &str = "gpt-4o";
 
 pub struct OpenAiAdapter {
     api_key: String,
+    pub model: String,
+    pub retries: u32,
     client: reqwest::blocking::Client,
 }
 
 impl OpenAiAdapter {
-    pub fn from_secrets() -> Result<Self> {
+    pub fn from_secrets_and_config() -> Result<Self> {
         let secrets = Secrets::load()?;
         let api_key = secrets
             .get("OPENAI_API_KEY")
             .context("OPENAI_API_KEY not set. Run `moeb use openai` first.")?
             .to_string();
+        let cfg = MoebConfig::load().unwrap_or_default();
+        let adapter_cfg = cfg.adapter_config("openai");
         Ok(Self {
             api_key,
+            model: adapter_cfg.effective_model(DEFAULT_MODEL),
+            retries: adapter_cfg.effective_retries(),
             client: reqwest::blocking::Client::new(),
         })
     }
@@ -36,30 +42,46 @@ impl AiPort for OpenAiAdapter {
 impl Adapter for OpenAiAdapter {
     fn send(&self, messages: &[Message], tools: &[ToolDef]) -> Result<AgentResponse> {
         let body = json!({
-            "model": MODEL,
+            "model": self.model,
             "messages": messages.iter().map(to_openai_message).collect::<Vec<_>>(),
             "tools": tools.iter().map(to_openai_tool).collect::<Vec<_>>(),
         });
 
-        let response = self
-            .client
-            .post(API_URL)
-            .bearer_auth(&self.api_key)
-            .json(&body)
-            .send()
-            .context("Failed to reach OpenAI API")?;
+        let max_attempts = self.retries + 1;
+        let mut last_err: Option<anyhow::Error> = None;
 
-        let status = response.status();
-        let text = response.text().context("Failed to read OpenAI response body")?;
+        for attempt in 0..max_attempts {
+            if attempt > 0 {
+                std::thread::sleep(std::time::Duration::from_secs(1));
+            }
 
-        if !status.is_success() {
-            anyhow::bail!("OpenAI API error {}: {}", status, text);
+            let response = self
+                .client
+                .post(API_URL)
+                .bearer_auth(&self.api_key)
+                .json(&body)
+                .send()
+                .context("Failed to reach OpenAI API")?;
+
+            let status = response.status();
+            let text = response.text().context("Failed to read OpenAI response body")?;
+
+            if status.as_u16() == 429 || status.is_server_error() {
+                last_err = Some(anyhow::anyhow!("OpenAI API error {}: {}", status, text));
+                continue;
+            }
+
+            if !status.is_success() {
+                anyhow::bail!("OpenAI API error {}: {}", status, text);
+            }
+
+            let value: serde_json::Value =
+                serde_json::from_str(&text).context("Failed to parse OpenAI response JSON")?;
+
+            return parse_response(&value);
         }
 
-        let value: serde_json::Value =
-            serde_json::from_str(&text).context("Failed to parse OpenAI response JSON")?;
-
-        parse_response(&value)
+        Err(last_err.unwrap_or_else(|| anyhow::anyhow!("OpenAI API request failed")))
     }
 }
 

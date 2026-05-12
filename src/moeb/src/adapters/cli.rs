@@ -4,7 +4,7 @@ use std::sync::Arc;
 use crate::adapters::openai::OpenAiAdapter;
 use crate::config::MoebConfig;
 use crate::domain::{init::InitService, run::RunService, spec::SpecService, use_adapter::UseAdapterService};
-use crate::ports::{AiPort, InitPort, RunPort, SpecPort, UseAdapterPort};
+use crate::ports::{AdapterManagementPort, AiPort, InitPort, ListAdaptersPort, RunPort, SpecPort, UseAdapterPort};
 
 pub struct CliAdapter;
 
@@ -17,6 +17,22 @@ impl InitPort for CliAdapter {
 impl UseAdapterPort for CliAdapter {
     fn run(&self, adapter_name: &str) -> Result<()> {
         UseAdapterService.run(adapter_name)
+    }
+}
+
+impl ListAdaptersPort for CliAdapter {
+    fn run(&self) -> Result<()> {
+        crate::commands::adapters::run()
+    }
+}
+
+impl AdapterManagementPort for CliAdapter {
+    fn configure(&self, adapter: &str, key: &str, value: &str) -> Result<()> {
+        crate::commands::adapter_management::configure(adapter, key, value)
+    }
+
+    fn release(&self, adapter: &str) -> Result<()> {
+        crate::commands::adapter_management::release(adapter)
     }
 }
 
@@ -41,7 +57,7 @@ fn resolve_ai_adapter() -> Result<Arc<dyn AiPort>> {
         anyhow::bail!("No adapter configured. Run `moeb use <adapter>` first.");
     }
     match adapter_name {
-        "openai" => Ok(Arc::new(OpenAiAdapter::from_secrets()?)),
+        "openai" => Ok(Arc::new(OpenAiAdapter::from_secrets_and_config()?)),
         other => anyhow::bail!(
             "Adapter '{}' is configured but not recognised. Run `moeb use <adapter>` to reconfigure.",
             other

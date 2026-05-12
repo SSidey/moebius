@@ -4,7 +4,7 @@ use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-const MOEB_DIR: &str = ".moeb";
+pub const MOEB_DIR: &str = ".moeb";
 const CONFIG_FILE: &str = "config.toml";
 const SECRETS_FILE: &str = ".secrets";
 
@@ -20,17 +20,41 @@ pub fn secrets_path() -> PathBuf {
     moeb_dir().join(SECRETS_FILE)
 }
 
+// ── AdapterConfig ─────────────────────────────────────────────────────────────
+
+#[derive(Debug, Default, Clone, Serialize, Deserialize)]
+pub struct AdapterConfig {
+    pub model: Option<String>,
+    pub retries: Option<u32>,
+}
+
+impl AdapterConfig {
+    pub fn effective_model(&self, default: &str) -> String {
+        self.model.clone().unwrap_or_else(|| default.to_string())
+    }
+
+    pub fn effective_retries(&self) -> u32 {
+        self.retries.unwrap_or(0)
+    }
+}
+
 // ── MoebConfig ──────────────────────────────────────────────────────────────
 
 #[derive(Debug, Default, Serialize, Deserialize)]
 pub struct MoebConfig {
     pub active_adapter: Option<String>,
     pub spec_retry_limit: Option<u32>,
+    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    pub adapters: HashMap<String, AdapterConfig>,
 }
 
 impl MoebConfig {
     pub fn effective_spec_retry_limit(&self) -> u32 {
         self.spec_retry_limit.unwrap_or(3)
+    }
+
+    pub fn adapter_config(&self, name: &str) -> AdapterConfig {
+        self.adapters.get(name).cloned().unwrap_or_default()
     }
 }
 
@@ -64,6 +88,10 @@ pub struct Secrets {
 }
 
 impl Secrets {
+    pub fn empty() -> Self {
+        Self { path: secrets_path(), map: HashMap::new() }
+    }
+
     pub fn load() -> Result<Self> {
         let path = secrets_path();
         let map = if path.exists() {
@@ -82,6 +110,11 @@ impl Secrets {
 
     pub fn set(&mut self, key: &str, value: &str) -> Result<()> {
         self.map.insert(key.to_string(), value.to_string());
+        self.flush()
+    }
+
+    pub fn remove(&mut self, key: &str) -> Result<()> {
+        self.map.remove(key);
         self.flush()
     }
 
@@ -106,13 +139,13 @@ fn parse_kv(text: &str) -> HashMap<String, String> {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
     use std::env;
     use std::sync::{Mutex, MutexGuard};
     use tempfile::TempDir;
 
-    static CWD_LOCK: Mutex<()> = Mutex::new(());
+    pub(crate) static CWD_LOCK: Mutex<()> = Mutex::new(());
 
     fn in_temp_dir() -> (TempDir, MutexGuard<'static, ()>) {
         let guard = CWD_LOCK.lock().unwrap_or_else(|e| e.into_inner());
@@ -175,5 +208,37 @@ mod tests {
         config.save().unwrap();
         let loaded = MoebConfig::load().unwrap();
         assert_eq!(loaded.effective_spec_retry_limit(), 5);
+    }
+
+    #[test]
+    fn adapter_config_returns_default_when_absent() {
+        let config = MoebConfig::default();
+        assert_eq!(config.adapter_config("openai").effective_model("gpt-4o"), "gpt-4o");
+        assert_eq!(config.adapter_config("openai").effective_retries(), 0);
+    }
+
+    #[test]
+    fn adapter_config_round_trips_through_toml() {
+        let (_dir, _guard) = in_temp_dir();
+        fs::create_dir_all(MOEB_DIR).unwrap();
+        let mut config = MoebConfig::default();
+        config.adapters.insert("openai".to_string(), AdapterConfig {
+            model: Some("gpt-4o-mini".to_string()),
+            retries: Some(3),
+        });
+        config.save().unwrap();
+        let loaded = MoebConfig::load().unwrap();
+        let ac = loaded.adapter_config("openai");
+        assert_eq!(ac.effective_model("gpt-4o"), "gpt-4o-mini");
+        assert_eq!(ac.effective_retries(), 3);
+    }
+
+    #[test]
+    fn empty_adapters_map_not_written() {
+        let (_dir, _guard) = in_temp_dir();
+        fs::create_dir_all(MOEB_DIR).unwrap();
+        MoebConfig::default().save().unwrap();
+        let text = fs::read_to_string(config_path()).unwrap();
+        assert!(!text.contains("adapters"), "config.toml must not contain 'adapters' when map is empty");
     }
 }
