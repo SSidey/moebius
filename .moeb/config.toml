@@ -1,5 +1,5 @@
 active_adapter = "anthropic"
 
 [adapters.anthropic]
-model = "claude-sonnet-4.6"
+model = "claude-sonnet-4-6"
 retries = 3

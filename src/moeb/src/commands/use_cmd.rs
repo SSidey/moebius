@@ -1,6 +1,7 @@
 use anyhow::{Context, Result};
 use rpassword::prompt_password;
 
+use crate::adapters::anthropic::DEFAULT_TIMEOUT_SECS as ANTHROPIC_DEFAULT_TIMEOUT_SECS;
 use crate::config::{MoebConfig, Secrets};
 
 const KNOWN_ADAPTERS: &[&str] = &["openai", "anthropic"];
@@ -62,6 +63,7 @@ pub fn print_anthropic_config_summary(config: &MoebConfig) {
     let ac = config.adapter_config("anthropic");
     let model = ac.effective_model(ANTHROPIC_DEFAULT_MODEL);
     let retries = ac.effective_retries();
+    let timeout = ac.effective_timeout_secs(ANTHROPIC_DEFAULT_TIMEOUT_SECS);
 
     println!();
     println!("Configuration options (current effective values):");
@@ -72,6 +74,10 @@ pub fn print_anthropic_config_summary(config: &MoebConfig) {
     println!(
         "  {:<8} {:<16} moeb adapter anthropic config RETRIES <count>",
         "RETRIES", retries
+    );
+    println!(
+        "  {:<8} {:<16} moeb adapter anthropic config TIMEOUT <seconds>",
+        "TIMEOUT", timeout
     );
     println!();
     println!("To remove credentials: moeb adapter anthropic release");

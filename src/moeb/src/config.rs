@@ -26,6 +26,7 @@ pub fn secrets_path() -> PathBuf {
 pub struct AdapterConfig {
     pub model: Option<String>,
     pub retries: Option<u32>,
+    pub timeout_secs: Option<u64>,
 }
 
 impl AdapterConfig {
@@ -35,6 +36,10 @@ impl AdapterConfig {
 
     pub fn effective_retries(&self) -> u32 {
         self.retries.unwrap_or(0)
+    }
+
+    pub fn effective_timeout_secs(&self, default: u64) -> u64 {
+        self.timeout_secs.unwrap_or(default)
     }
 }
 
@@ -225,12 +230,33 @@ pub(crate) mod tests {
         config.adapters.insert("openai".to_string(), AdapterConfig {
             model: Some("gpt-4o-mini".to_string()),
             retries: Some(3),
+            timeout_secs: None,
         });
         config.save().unwrap();
         let loaded = MoebConfig::load().unwrap();
         let ac = loaded.adapter_config("openai");
         assert_eq!(ac.effective_model("gpt-4o"), "gpt-4o-mini");
         assert_eq!(ac.effective_retries(), 3);
+    }
+
+    #[test]
+    fn adapter_config_timeout_defaults_and_round_trips() {
+        let (_dir, _guard) = in_temp_dir();
+        fs::create_dir_all(MOEB_DIR).unwrap();
+
+        // Default when absent
+        assert_eq!(AdapterConfig::default().effective_timeout_secs(600), 600);
+
+        // Round-trip through config.toml
+        let mut config = MoebConfig::default();
+        config.adapters.insert("anthropic".to_string(), AdapterConfig {
+            model: None,
+            retries: None,
+            timeout_secs: Some(300),
+        });
+        config.save().unwrap();
+        let loaded = MoebConfig::load().unwrap();
+        assert_eq!(loaded.adapter_config("anthropic").effective_timeout_secs(600), 300);
     }
 
     #[test]

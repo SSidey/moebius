@@ -9,11 +9,13 @@ const API_URL: &str = "https://api.anthropic.com/v1/messages";
 const ANTHROPIC_VERSION: &str = "2023-06-01";
 const DEFAULT_MODEL: &str = "claude-opus-4-7";
 const MAX_TOKENS: u32 = 8192;
+pub const DEFAULT_TIMEOUT_SECS: u64 = 600;
 
 pub struct AnthropicAdapter {
     api_key: String,
     pub model: String,
     pub retries: u32,
+    pub timeout_secs: u64,
     client: reqwest::blocking::Client,
 }
 
@@ -30,6 +32,7 @@ impl AnthropicAdapter {
             api_key,
             model: adapter_cfg.effective_model(DEFAULT_MODEL),
             retries: adapter_cfg.effective_retries(),
+            timeout_secs: adapter_cfg.effective_timeout_secs(DEFAULT_TIMEOUT_SECS),
             client: reqwest::blocking::Client::new(),
         })
     }
@@ -53,15 +56,22 @@ impl Adapter for AnthropicAdapter {
                 std::thread::sleep(std::time::Duration::from_secs(1));
             }
 
-            let response = self
+            let response = match self
                 .client
                 .post(API_URL)
                 .header("x-api-key", &self.api_key)
                 .header("anthropic-version", ANTHROPIC_VERSION)
                 .header("content-type", "application/json")
+                .timeout(std::time::Duration::from_secs(self.timeout_secs))
                 .json(&body)
                 .send()
-                .context("Failed to reach Anthropic API")?;
+            {
+                Err(e) => {
+                    last_err = Some(anyhow::anyhow!("Failed to reach Anthropic API: {}", e));
+                    continue;
+                }
+                Ok(r) => r,
+            };
 
             let status = response.status();
             let text = response.text().context("Failed to read Anthropic response body")?;
@@ -267,6 +277,7 @@ mod tests {
         config.adapters.insert("anthropic".to_string(), AdapterConfig {
             model: Some("claude-haiku-4-5".to_string()),
             retries: None,
+            timeout_secs: None,
         });
         config.save().unwrap();
 
@@ -305,6 +316,33 @@ mod tests {
         }
         assert_eq!(msgs.len(), 1, "only one user message expected");
         assert_eq!(msgs[0]["role"], "user");
+    }
+
+    #[test]
+    fn anthropic_adapter_uses_configured_timeout() {
+        let (_dir, _guard) = in_temp_dir();
+        let mut secrets = Secrets::load().unwrap();
+        secrets.set("ANTHROPIC_API_KEY", "sk-ant-dummy").unwrap();
+        let mut config = MoebConfig::load().unwrap();
+        config.adapters.insert("anthropic".to_string(), AdapterConfig {
+            model: None,
+            retries: None,
+            timeout_secs: Some(120),
+        });
+        config.save().unwrap();
+
+        let adapter = AnthropicAdapter::from_secrets_and_config().unwrap();
+        assert_eq!(adapter.timeout_secs, 120);
+    }
+
+    #[test]
+    fn anthropic_adapter_uses_default_timeout_when_absent() {
+        let (_dir, _guard) = in_temp_dir();
+        let mut secrets = Secrets::load().unwrap();
+        secrets.set("ANTHROPIC_API_KEY", "sk-ant-dummy").unwrap();
+
+        let adapter = AnthropicAdapter::from_secrets_and_config().unwrap();
+        assert_eq!(adapter.timeout_secs, 600);
     }
 
     #[test]

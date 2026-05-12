@@ -14,7 +14,8 @@ fn secret_key_for(adapter: &str) -> Option<&'static str> {
 
 fn valid_keys_for(adapter: &str) -> &'static [&'static str] {
     match adapter {
-        "openai" | "anthropic" => &["MODEL", "RETRIES"],
+        "openai" => &["MODEL", "RETRIES"],
+        "anthropic" => &["MODEL", "RETRIES", "TIMEOUT"],
         _ => &[],
     }
 }
@@ -30,6 +31,15 @@ pub fn configure(adapter: &str, key: &str, value: &str) -> Result<()> {
 
     let key_upper = key.to_uppercase();
     let valid_keys = valid_keys_for(adapter);
+
+    if !valid_keys.iter().any(|k| k.eq_ignore_ascii_case(key)) {
+        anyhow::bail!(
+            "Unknown key '{}'. Valid keys for {}: {}",
+            key,
+            adapter,
+            valid_keys.join(", ")
+        );
+    }
 
     let mut config = MoebConfig::load()?;
     let entry = config.adapters.entry(adapter.to_string()).or_insert_with(AdapterConfig::default);
@@ -54,12 +64,18 @@ pub fn configure(adapter: &str, key: &str, value: &str) -> Result<()> {
             config.save()?;
             println!("{} RETRIES set to {}.", adapter, count);
         }
-        _ => anyhow::bail!(
-            "Unknown key '{}'. Valid keys for {}: {}",
-            key,
-            adapter,
-            valid_keys.join(", ")
-        ),
+        "TIMEOUT" => {
+            let secs: u64 = value.trim().parse().map_err(|_| {
+                anyhow::anyhow!(
+                    "TIMEOUT requires a positive integer (seconds), got '{}'. Example: moeb adapter {} config TIMEOUT 600",
+                    value, adapter
+                )
+            })?;
+            entry.timeout_secs = Some(secs);
+            config.save()?;
+            println!("{} TIMEOUT set to {} seconds.", adapter, secs);
+        }
+        _ => unreachable!("all valid keys are handled above"),
     }
 
     Ok(())
@@ -168,6 +184,7 @@ mod tests {
         config.adapters.insert("openai".to_string(), AdapterConfig {
             model: Some("gpt-4o-mini".to_string()),
             retries: Some(2),
+            timeout_secs: None,
         });
         config.save().unwrap();
 
@@ -204,6 +221,24 @@ mod tests {
     }
 
     #[test]
+    fn configure_anthropic_timeout_updates_config() {
+        let (_dir, _guard) = in_temp_dir();
+        configure("anthropic", "TIMEOUT", "300").unwrap();
+        let config = MoebConfig::load().unwrap();
+        assert_eq!(config.adapter_config("anthropic").timeout_secs, Some(300));
+    }
+
+    #[test]
+    fn configure_anthropic_timeout_rejects_invalid_value() {
+        let (_dir, _guard) = in_temp_dir();
+        let err = configure("anthropic", "TIMEOUT", "fast").unwrap_err();
+        assert!(
+            err.to_string().contains("seconds"),
+            "expected 'seconds' in error, got: {err}"
+        );
+    }
+
+    #[test]
     fn release_anthropic_removes_secret() {
         let (_dir, _guard) = in_temp_dir();
         let mut secrets = Secrets::load().unwrap();
@@ -229,6 +264,7 @@ mod tests {
         config.adapters.insert("openai".to_string(), AdapterConfig {
             model: Some("gpt-4o-mini".to_string()),
             retries: None,
+            timeout_secs: None,
         });
         config.save().unwrap();
 

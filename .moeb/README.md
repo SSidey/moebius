@@ -85,6 +85,8 @@ Organised by domain. Add a new `###` subsection for each domain as it is introdu
 | Spec Validation Retry with User-Visible Error Reporting | When spec validation fails, retry up to a user-configured limit printing each error to the user, and strengthen spec.prompt to reduce frontmatter omission | [specifications/moeb/moeb.spec-retry-on-validation-failure.md](specifications/moeb/moeb.spec-retry-on-validation-failure.md) |
 | Adapter Configuration, Release, and Listing | Adds moeb adapters (list all adapters and state), moeb adapter <name> config KEY VALUE (set per-adapter model and retries), and moeb adapter <name> release (remove credentials); extends moeb use to print a config summary | [specifications/moeb/moeb.adapter-config-and-listing.md](specifications/moeb/moeb.adapter-config-and-listing.md) |
 | Anthropic Claude Adapter | Adds an AnthropicAdapter implementing AiPort via the Anthropic Messages API, registers anthropic in all KNOWN_ADAPTERS lists, and integrates with moeb use, moeb adapters, and moeb adapter config/release | [specifications/moeb/moeb.anthropic-adapter.md](specifications/moeb/moeb.anthropic-adapter.md) |
+| Anthropic Adapter Timeout and Transport Error Retry | Fixes operation-timed-out failures by adding a configurable per-request timeout (TIMEOUT key, default 600 s) and extending the retry loop to cover transport-level errors alongside HTTP 429 and 5xx responses | [specifications/moeb/moeb.anthropic-adapter-timeout-retry.md](specifications/moeb/moeb.anthropic-adapter-timeout-retry.md) |
+
 
 ### vcs
 
