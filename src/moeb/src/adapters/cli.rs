@@ -1,6 +1,7 @@
 use anyhow::Result;
 use std::sync::Arc;
 
+use crate::adapters::anthropic::AnthropicAdapter;
 use crate::adapters::openai::OpenAiAdapter;
 use crate::config::MoebConfig;
 use crate::domain::{init::InitService, run::RunService, spec::SpecService, use_adapter::UseAdapterService};
@@ -58,6 +59,7 @@ fn resolve_ai_adapter() -> Result<Arc<dyn AiPort>> {
     }
     match adapter_name {
         "openai" => Ok(Arc::new(OpenAiAdapter::from_secrets_and_config()?)),
+        "anthropic" => Ok(Arc::new(AnthropicAdapter::from_secrets_and_config()?)),
         other => anyhow::bail!(
             "Adapter '{}' is configured but not recognised. Run `moeb use <adapter>` to reconfigure.",
             other

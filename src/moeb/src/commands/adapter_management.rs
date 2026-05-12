@@ -2,18 +2,19 @@ use anyhow::Result;
 
 use crate::config::{AdapterConfig, MoebConfig, Secrets};
 
-const KNOWN_ADAPTERS: &[&str] = &["openai"];
+const KNOWN_ADAPTERS: &[&str] = &["openai", "anthropic"];
 
 fn secret_key_for(adapter: &str) -> Option<&'static str> {
     match adapter {
         "openai" => Some("OPENAI_API_KEY"),
+        "anthropic" => Some("ANTHROPIC_API_KEY"),
         _ => None,
     }
 }
 
 fn valid_keys_for(adapter: &str) -> &'static [&'static str] {
     match adapter {
-        "openai" => &["MODEL", "RETRIES"],
+        "openai" | "anthropic" => &["MODEL", "RETRIES"],
         _ => &[],
     }
 }
@@ -189,6 +190,34 @@ mod tests {
 
         // Just verify the run() function doesn't error; output goes to stdout
         crate::commands::adapters::run().unwrap();
+    }
+
+    #[test]
+    fn configure_anthropic_model_updates_config() {
+        let (_dir, _guard) = in_temp_dir();
+        configure("anthropic", "MODEL", "claude-haiku-4-5").unwrap();
+        let config = MoebConfig::load().unwrap();
+        assert_eq!(
+            config.adapter_config("anthropic").model.as_deref(),
+            Some("claude-haiku-4-5")
+        );
+    }
+
+    #[test]
+    fn release_anthropic_removes_secret() {
+        let (_dir, _guard) = in_temp_dir();
+        let mut secrets = Secrets::load().unwrap();
+        secrets.set("ANTHROPIC_API_KEY", "sk-ant-test").unwrap();
+        let mut config = MoebConfig::load().unwrap();
+        config.active_adapter = Some("anthropic".to_string());
+        config.save().unwrap();
+
+        release("anthropic").unwrap();
+
+        let secrets = Secrets::load().unwrap();
+        assert!(secrets.get("ANTHROPIC_API_KEY").is_none(), "secret must be absent after release");
+        let config = MoebConfig::load().unwrap();
+        assert!(config.active_adapter.is_none(), "active_adapter must be None after release");
     }
 
     #[test]
