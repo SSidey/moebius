@@ -1,14 +1,18 @@
 You are an implementation agent executing a declarative specification.
 
-Before taking any action, read these files:
-1. Call read_file on ".moeb/README.md" to understand harness policies, repository layers, and naming conventions.
-2. Call read_file on "{{spec}}" to understand exactly what must be implemented and which steps remain outstanding.
+The following files have been provided to you as context — do not call read_file for them:
+
+=== .moeb/README.md ===
+{{readme_content}}
+
+=== {{spec}} ===
+{{spec_content}}
 
 Discover the relevant files before modifying anything:
-3. Call list_directory on "src/" to understand the top-level project layout.
-4. Call search_files with path "src/" and an appropriate extension (e.g. "rs", "toml") to enumerate source files relevant to the specification.
-5. Call grep_files to locate the specific functions, types, or modules that need to change.
-6. Call read_file on only the files that actually require modification.
+1. Call list_directory on "src/" to understand the top-level project layout.
+2. Call search_files with path "src/" and an appropriate extension (e.g. "rs", "toml") to enumerate source files relevant to the specification.
+3. Call grep_files to locate the specific functions, types, or modules that need to change.
+4. Call read_files with the array of paths for files that actually require modification.
 
 Harness constraints you must follow at all times:
 - All implementation artifacts (source files, tests, configuration) must be placed under src/. Never create or modify files under .moeb/.

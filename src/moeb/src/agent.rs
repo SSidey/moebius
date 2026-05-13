@@ -128,6 +128,21 @@ fn file_tools() -> Vec<ToolDef> {
                 "required": ["pattern"]
             }),
         },
+        ToolDef {
+            name: "read_files",
+            description: "Read the full contents of multiple files in one call. Returns each file's path as a labelled header followed by its content. Paths are relative to the working directory.",
+            parameters: json!({
+                "type": "object",
+                "properties": {
+                    "paths": {
+                        "type": "array",
+                        "items": { "type": "string" },
+                        "description": "File paths relative to the working directory"
+                    }
+                },
+                "required": ["paths"]
+            }),
+        },
     ]
 }
 
@@ -204,8 +219,30 @@ fn execute_tool(name: &str, arguments: &str, working_dir: &Path) -> Result<Strin
             }
         }
 
+        "read_files" => {
+            let paths = args["paths"]
+                .as_array()
+                .context("read_files: 'paths' must be an array")?;
+            let mut out = String::new();
+            for path_val in paths {
+                let rel = path_val
+                    .as_str()
+                    .context("read_files: each path must be a string")?;
+                let full = working_dir.join(rel);
+                match fs::read_to_string(&full) {
+                    Ok(content) => {
+                        out.push_str(&format!("=== {} ===\n{}\n\n", rel, content));
+                    }
+                    Err(e) => {
+                        out.push_str(&format!("=== {} ===\nError: {}\n\n", rel, e));
+                    }
+                }
+            }
+            Ok(out)
+        }
+
         other => anyhow::bail!(
-            "Unknown tool '{}'. Available: read_file, write_file, list_directory, search_files, grep_files",
+            "Unknown tool '{}'. Available: read_file, write_file, list_directory, search_files, grep_files, read_files",
             other
         ),
     }
@@ -374,5 +411,29 @@ mod tests {
         let result = execute_tool("grep_files", &args, tmp.path()).unwrap();
         assert!(result.contains("baz.rs"));
         assert!(result.contains("struct Baz"));
+    }
+
+    #[test]
+    fn read_files_returns_all_contents() {
+        let tmp = tempfile::tempdir().unwrap();
+        fs::write(tmp.path().join("alpha.txt"), "content-alpha").unwrap();
+        fs::write(tmp.path().join("beta.txt"), "content-beta").unwrap();
+        let args = serde_json::json!({"paths": ["alpha.txt", "beta.txt"]}).to_string();
+        let result = execute_tool("read_files", &args, tmp.path()).unwrap();
+        assert!(result.contains("=== alpha.txt ==="));
+        assert!(result.contains("content-alpha"));
+        assert!(result.contains("=== beta.txt ==="));
+        assert!(result.contains("content-beta"));
+    }
+
+    #[test]
+    fn read_files_reports_error_inline_for_missing_path() {
+        let tmp = tempfile::tempdir().unwrap();
+        fs::write(tmp.path().join("real.txt"), "real-content").unwrap();
+        let args = serde_json::json!({"paths": ["real.txt", "nonexistent.txt"]}).to_string();
+        let result = execute_tool("read_files", &args, tmp.path()).unwrap();
+        assert!(result.contains("real-content"), "valid file content must be present");
+        assert!(result.contains("=== nonexistent.txt ==="), "missing file must have a section header");
+        assert!(result.contains("Error:"), "missing file must produce an inline error");
     }
 }
