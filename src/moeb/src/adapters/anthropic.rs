@@ -3,7 +3,7 @@ use serde_json::{json, Value};
 
 use crate::config::{MoebConfig, Secrets};
 use crate::ports::AiPort;
-use super::{Adapter, AgentResponse, Message, ToolCall, ToolDef};
+use super::{retry, Adapter, AgentResponse, Message, ToolCall, ToolDef};
 
 const API_URL: &str = "https://api.anthropic.com/v1/messages";
 const ANTHROPIC_VERSION: &str = "2023-06-01";
@@ -52,10 +52,6 @@ impl Adapter for AnthropicAdapter {
         let mut last_err: Option<anyhow::Error> = None;
 
         for attempt in 0..max_attempts {
-            if attempt > 0 {
-                std::thread::sleep(std::time::Duration::from_secs(1));
-            }
-
             let response = match self
                 .client
                 .post(API_URL)
@@ -68,16 +64,30 @@ impl Adapter for AnthropicAdapter {
             {
                 Err(e) => {
                     last_err = Some(anyhow::anyhow!("Failed to reach Anthropic API: {}", e));
+                    if attempt + 1 < max_attempts {
+                        std::thread::sleep(retry::compute_delay(attempt, None));
+                    }
                     continue;
                 }
                 Ok(r) => r,
             };
 
             let status = response.status();
+            let retry_after = if status.as_u16() == 429 {
+                retry::parse_retry_after(response.headers())
+            } else {
+                None
+            };
+            if status.is_success() {
+                retry::warn_if_quota_low(response.headers(), "anthropic-ratelimit-requests-remaining");
+            }
             let text = response.text().context("Failed to read Anthropic response body")?;
 
             if status.as_u16() == 429 || status.is_server_error() {
                 last_err = Some(anyhow::anyhow!("Anthropic API error {}: {}", status, text));
+                if attempt + 1 < max_attempts {
+                    std::thread::sleep(retry::compute_delay(attempt, retry_after));
+                }
                 continue;
             }
 
@@ -256,8 +266,10 @@ mod tests {
     use super::*;
     use std::env;
     use std::fs;
+    use std::time::Duration;
     use tempfile::TempDir;
 
+    use crate::adapters::retry;
     use crate::config::{tests::CWD_LOCK, AdapterConfig, MoebConfig, Secrets, MOEB_DIR};
 
     fn in_temp_dir() -> (TempDir, std::sync::MutexGuard<'static, ()>) {
@@ -343,6 +355,21 @@ mod tests {
 
         let adapter = AnthropicAdapter::from_secrets_and_config().unwrap();
         assert_eq!(adapter.timeout_secs, 600);
+    }
+
+    #[test]
+    fn anthropic_retry_delay_first_attempt_within_bounds() {
+        let delay = retry::compute_delay(0, None);
+        assert!(
+            delay >= Duration::from_millis(750),
+            "delay too short: {:?}",
+            delay
+        );
+        assert!(
+            delay <= Duration::from_millis(1250),
+            "delay too long: {:?}",
+            delay
+        );
     }
 
     #[test]

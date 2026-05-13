@@ -3,7 +3,7 @@ use serde_json::json;
 
 use crate::config::{MoebConfig, Secrets};
 use crate::ports::AiPort;
-use super::{Adapter, AgentResponse, Message, ToolCall, ToolDef};
+use super::{retry, Adapter, AgentResponse, Message, ToolCall, ToolDef};
 
 const API_URL: &str = "https://api.openai.com/v1/chat/completions";
 const DEFAULT_MODEL: &str = "gpt-4o";
@@ -51,23 +51,39 @@ impl Adapter for OpenAiAdapter {
         let mut last_err: Option<anyhow::Error> = None;
 
         for attempt in 0..max_attempts {
-            if attempt > 0 {
-                std::thread::sleep(std::time::Duration::from_secs(1));
-            }
-
-            let response = self
+            let response = match self
                 .client
                 .post(API_URL)
                 .bearer_auth(&self.api_key)
                 .json(&body)
                 .send()
-                .context("Failed to reach OpenAI API")?;
+            {
+                Err(e) => {
+                    last_err = Some(anyhow::anyhow!("Failed to reach OpenAI API: {}", e));
+                    if attempt + 1 < max_attempts {
+                        std::thread::sleep(retry::compute_delay(attempt, None));
+                    }
+                    continue;
+                }
+                Ok(r) => r,
+            };
 
             let status = response.status();
+            let retry_after = if status.as_u16() == 429 {
+                retry::parse_retry_after(response.headers())
+            } else {
+                None
+            };
+            if status.is_success() {
+                retry::warn_if_quota_low(response.headers(), "x-ratelimit-remaining-requests");
+            }
             let text = response.text().context("Failed to read OpenAI response body")?;
 
             if status.as_u16() == 429 || status.is_server_error() {
                 last_err = Some(anyhow::anyhow!("OpenAI API error {}: {}", status, text));
+                if attempt + 1 < max_attempts {
+                    std::thread::sleep(retry::compute_delay(attempt, retry_after));
+                }
                 continue;
             }
 
@@ -166,4 +182,51 @@ fn parse_tool_call(value: &serde_json::Value) -> Result<ToolCall> {
             .context("Tool call missing function.arguments")?
             .to_string(),
     })
+}
+
+// ── Tests ─────────────────────────────────────────────────────────────────────
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::env;
+    use std::fs;
+    use tempfile::TempDir;
+
+    use crate::config::{tests::CWD_LOCK, AdapterConfig, MoebConfig, Secrets, MOEB_DIR};
+
+    fn in_temp_dir() -> (TempDir, std::sync::MutexGuard<'static, ()>) {
+        let guard = CWD_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let dir = tempfile::tempdir().expect("tempdir");
+        env::set_current_dir(dir.path()).expect("set_current_dir");
+        fs::create_dir_all(MOEB_DIR).expect("create .moeb dir");
+        (dir, guard)
+    }
+
+    #[test]
+    fn openai_adapter_uses_configured_retries() {
+        let (_dir, _guard) = in_temp_dir();
+        let mut secrets = Secrets::load().unwrap();
+        secrets.set("OPENAI_API_KEY", "sk-dummy").unwrap();
+        let mut config = MoebConfig::load().unwrap();
+        config.adapters.insert("openai".to_string(), AdapterConfig {
+            model: None,
+            retries: Some(2),
+            timeout_secs: None,
+        });
+        config.save().unwrap();
+
+        let adapter = OpenAiAdapter::from_secrets_and_config().unwrap();
+        assert_eq!(adapter.retries, 2);
+    }
+
+    #[test]
+    fn openai_adapter_uses_default_retries_when_absent() {
+        let (_dir, _guard) = in_temp_dir();
+        let mut secrets = Secrets::load().unwrap();
+        secrets.set("OPENAI_API_KEY", "sk-dummy").unwrap();
+
+        let adapter = OpenAiAdapter::from_secrets_and_config().unwrap();
+        assert_eq!(adapter.retries, 0);
+    }
 }
