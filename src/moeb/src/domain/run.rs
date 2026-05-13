@@ -134,7 +134,9 @@ impl RunService {
             Ok(_) => (TraceOutcome::Success, None),
             Err(e) => (TraceOutcome::Failure, Some(e.to_string())),
         };
-        let _ = trace.finalize(outcome, err_msg);
+        if let Err(e) = trace.finalize(outcome, err_msg) {
+            eprintln!("[moeb] warning: trace could not be saved: {}", e);
+        }
 
         let result = run_result?;
         if !result.is_empty() {

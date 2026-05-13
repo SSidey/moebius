@@ -12,6 +12,25 @@ use crate::trace::{
 };
 
 const MAX_TURNS: usize = 50;
+const MAX_READ_BYTES: usize = 102_400; // 100 KiB per file read result
+
+fn truncate_to_byte_limit(content: String, limit: usize) -> String {
+    if content.len() <= limit {
+        return content;
+    }
+    let mut boundary = limit;
+    while boundary > 0 && !content.is_char_boundary(boundary) {
+        boundary -= 1;
+    }
+    let total = content.len();
+    let shown = boundary;
+    format!(
+        "{}\n[... truncated: {} of {} chars shown ...]",
+        &content[..boundary],
+        shown,
+        total
+    )
+}
 
 // ── ToolExecutorPort ──────────────────────────────────────────────────────────
 
@@ -308,8 +327,9 @@ pub fn execute_tool_inner(name: &str, args: &serde_json::Value, working_dir: &Pa
         "read_file" => {
             let rel = args["path"].as_str().context("read_file: missing 'path'")?;
             let full = working_dir.join(rel);
-            fs::read_to_string(&full)
-                .with_context(|| format!("read_file: cannot read {}", full.display()))
+            let content = fs::read_to_string(&full)
+                .with_context(|| format!("read_file: cannot read {}", full.display()))?;
+            Ok(truncate_to_byte_limit(content, MAX_READ_BYTES))
         }
 
         "write_file" => {
@@ -383,7 +403,8 @@ pub fn execute_tool_inner(name: &str, args: &serde_json::Value, working_dir: &Pa
                 let full = working_dir.join(rel);
                 match fs::read_to_string(&full) {
                     Ok(content) => {
-                        out.push_str(&format!("=== {} ===\n{}\n\n", rel, content));
+                        let capped = truncate_to_byte_limit(content, MAX_READ_BYTES);
+                        out.push_str(&format!("=== {} ===\n{}\n\n", rel, capped));
                     }
                     Err(e) => {
                         out.push_str(&format!("=== {} ===\nError: {}\n\n", rel, e));
@@ -587,5 +608,56 @@ mod tests {
         assert!(result.contains("real-content"), "valid file content must be present");
         assert!(result.contains("=== nonexistent.txt ==="), "missing file must have a section header");
         assert!(result.contains("Error:"), "missing file must produce an inline error");
+    }
+
+    #[test]
+    fn truncate_to_byte_limit_passes_short_content() {
+        let s = "hello world".to_string();
+        let result = truncate_to_byte_limit(s.clone(), MAX_READ_BYTES);
+        assert_eq!(result, s);
+    }
+
+    #[test]
+    fn truncate_to_byte_limit_truncates_long_content() {
+        let s = "x".repeat(MAX_READ_BYTES + 1000);
+        let result = truncate_to_byte_limit(s.clone(), MAX_READ_BYTES);
+        assert!(result.len() <= MAX_READ_BYTES + 80);
+        assert!(result.contains("[... truncated:"));
+        assert!(result.contains(&format!("of {}", s.len())));
+    }
+
+    #[test]
+    fn read_file_truncates_large_file() {
+        let tmp = tempfile::tempdir().unwrap();
+        let content = "x".repeat(MAX_READ_BYTES + 1000);
+        fs::write(tmp.path().join("big.txt"), &content).unwrap();
+        let args = serde_json::json!({"path": "big.txt"});
+        let result = execute_tool_inner("read_file", &args, tmp.path()).unwrap();
+        assert!(result.contains("[... truncated:"));
+        assert!(result.len() < MAX_READ_BYTES + 200);
+    }
+
+    #[test]
+    fn read_files_truncates_each_file_independently() {
+        let tmp = tempfile::tempdir().unwrap();
+        let content = "x".repeat(MAX_READ_BYTES + 500);
+        fs::write(tmp.path().join("file1.txt"), &content).unwrap();
+        fs::write(tmp.path().join("file2.txt"), &content).unwrap();
+        let args = serde_json::json!({"paths": ["file1.txt", "file2.txt"]});
+        let result = execute_tool_inner("read_files", &args, tmp.path()).unwrap();
+        let count = result.matches("[... truncated:").count();
+        assert_eq!(count, 2, "both files must be independently truncated");
+        assert!(result.contains("=== file1.txt ==="));
+        assert!(result.contains("=== file2.txt ==="));
+    }
+
+    #[test]
+    fn read_file_does_not_truncate_exact_limit() {
+        let tmp = tempfile::tempdir().unwrap();
+        let content = "x".repeat(MAX_READ_BYTES);
+        fs::write(tmp.path().join("exact.txt"), &content).unwrap();
+        let args = serde_json::json!({"path": "exact.txt"});
+        let result = execute_tool_inner("read_file", &args, tmp.path()).unwrap();
+        assert!(!result.contains("[... truncated:"));
     }
 }

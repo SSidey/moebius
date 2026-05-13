@@ -142,12 +142,16 @@ impl SpecService {
                 }
             }
             trace.set_total_attempts(total_attempts);
-            let _ = trace.finalize(TraceOutcome::Failure, Some(last_err.to_string()));
+            if let Err(e) = trace.finalize(TraceOutcome::Failure, Some(last_err.to_string())) {
+                eprintln!("[moeb] warning: trace could not be saved: {}", e);
+            }
             bail!("spec generation failed after {} attempt(s). Last error: {}", retry_limit, last_err);
         };
 
         trace.set_total_attempts(total_attempts);
-        let _ = trace.finalize(TraceOutcome::Success, None);
+        if let Err(e) = trace.finalize(TraceOutcome::Success, None) {
+            eprintln!("[moeb] warning: trace could not be saved: {}", e);
+        }
 
         let spec_dir = working_dir.join("specifications").join(&domain);
         fs::create_dir_all(&spec_dir).with_context(|| {
