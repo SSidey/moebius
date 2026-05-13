@@ -3,15 +3,21 @@ use std::fs;
 use std::path::Path;
 use std::sync::Arc;
 
+use crate::adapters::anthropic::AnthropicAdapter;
+use crate::adapters::openai::OpenAiAdapter;
 use crate::assets::Prompts;
+use crate::config::MoebConfig;
 use crate::ports::AiPort;
+use crate::trace::{
+    FileContentMode, TraceCommand, TraceConfig, TraceContext, TraceOutcome,
+};
 
 const PROMPT_FILE: &str = "spec.prompt";
 const README_LINK_PROMPT_FILE: &str = "readme-link.prompt";
 const INPUT_TOKEN: &str = "{{input}}";
 
 const REQUIRED_SECTIONS: &[&str] = &[
-    "# ",           // level-1 title
+    "# ",
     "## Raw Requirement",
     "## Description",
     "```mermaid",
@@ -21,26 +27,48 @@ const REQUIRED_SECTIONS: &[&str] = &[
     "## Rubric",
 ];
 
+type AdapterFactory = Arc<dyn Fn(Arc<TraceContext>) -> Result<Arc<dyn AiPort>> + Send + Sync>;
+
 pub struct SpecService {
-    ai: Arc<dyn AiPort>,
+    ai_factory: AdapterFactory,
 }
 
 impl SpecService {
-    pub fn new(ai: Arc<dyn AiPort>) -> Self {
-        Self { ai }
+    /// For production use.
+    pub fn from_config() -> Self {
+        Self {
+            ai_factory: Arc::new(|trace| {
+                let cfg = MoebConfig::load().unwrap_or_default();
+                let name = cfg.active_adapter.clone().unwrap_or_default();
+                build_traced_adapter(&name, trace)
+            }),
+        }
     }
 
-    pub fn run(&self, input: &str) -> Result<()> {
+    /// For tests: wraps a pre-built adapter.
+    pub fn new(ai: Arc<dyn AiPort>) -> Self {
+        Self {
+            ai_factory: Arc::new(move |_trace| Ok(Arc::clone(&ai))),
+        }
+    }
+
+    pub fn run(&self, input: &str, _file_content_mode: FileContentMode) -> Result<()> {
         let working_dir = Path::new(".moeb");
         if !working_dir.exists() {
             bail!(".moeb/ not found. Run `moeb init` first.");
         }
-        let cfg = crate::config::MoebConfig::load().unwrap_or_default();
+        let cfg = MoebConfig::load().unwrap_or_default();
         let limit = cfg.effective_spec_retry_limit();
-        self.run_in(input, working_dir, limit)
+        self.run_in(input, working_dir, limit, _file_content_mode)
     }
 
-    pub(crate) fn run_in(&self, input: &str, working_dir: &Path, retry_limit: u32) -> Result<()> {
+    pub(crate) fn run_in(
+        &self,
+        input: &str,
+        working_dir: &Path,
+        retry_limit: u32,
+        file_content_mode: FileContentMode,
+    ) -> Result<()> {
         let asset = Prompts::get(PROMPT_FILE)
             .context("Embedded prompt template 'spec.prompt' not found in binary")?;
         let template = std::str::from_utf8(asset.data.as_ref())
@@ -50,11 +78,47 @@ impl SpecService {
 
         eprintln!("[moeb] generating specification (up to {} attempt(s))...", retry_limit);
 
+        let cfg = MoebConfig::load().unwrap_or_default();
+        let adapter_name = cfg.active_adapter.clone().unwrap_or_default();
+        let adapter_cfg = cfg.adapter_config(&adapter_name);
+        let model = adapter_cfg.effective_model("unknown");
+
+        let trace_config = TraceConfig {
+            command: TraceCommand::Spec,
+            spec: format!("spec-{}", sanitize_slug(input)),
+            adapter: adapter_name,
+            model,
+            retention: cfg.effective_run_retention(),
+            file_content_mode,
+        };
+        let trace = Arc::new(TraceContext::new(trace_config));
+        let ai = (self.ai_factory)(Arc::clone(&trace))?;
+
         let mut last_err: anyhow::Error = anyhow::anyhow!("no attempts made");
+        let mut total_attempts = 0u32;
 
         let (domain, slug, body) = 'retry: {
             for attempt in 1..=retry_limit {
-                let raw = match crate::agent::run_agent_loop(self.ai.as_ref(), &prompt, working_dir) {
+                total_attempts = attempt;
+                trace.current_attempt.store(attempt, std::sync::atomic::Ordering::SeqCst);
+
+                let tools = crate::agent::file_tools();
+                let executor = crate::agent::RealToolExecutor::new(
+                    Arc::clone(&trace),
+                    file_content_mode,
+                    attempt,
+                );
+                let initial_messages = vec![crate::adapters::Message::User(prompt.clone())];
+                let raw = match crate::agent::run_agent_loop_traced(
+                    ai.as_ref(),
+                    &executor,
+                    &tools,
+                    working_dir,
+                    initial_messages,
+                    50,
+                    &trace,
+                    attempt,
+                ) {
                     Ok(r) => r,
                     Err(e) => return Err(e),
                 };
@@ -77,8 +141,13 @@ impl SpecService {
                     }
                 }
             }
+            trace.set_total_attempts(total_attempts);
+            let _ = trace.finalize(TraceOutcome::Failure, Some(last_err.to_string()));
             bail!("spec generation failed after {} attempt(s). Last error: {}", retry_limit, last_err);
         };
+
+        trace.set_total_attempts(total_attempts);
+        let _ = trace.finalize(TraceOutcome::Success, None);
 
         let spec_dir = working_dir.join("specifications").join(&domain);
         fs::create_dir_all(&spec_dir).with_context(|| {
@@ -95,12 +164,18 @@ impl SpecService {
             domain, filename
         );
 
-        self.link_readme(&domain, &filename, working_dir)?;
+        self.link_readme(&domain, &filename, working_dir, file_content_mode)?;
 
         Ok(())
     }
 
-    fn link_readme(&self, domain: &str, filename: &str, working_dir: &Path) -> Result<()> {
+    fn link_readme(
+        &self,
+        domain: &str,
+        filename: &str,
+        working_dir: &Path,
+        file_content_mode: FileContentMode,
+    ) -> Result<()> {
         let asset = Prompts::get(README_LINK_PROMPT_FILE)
             .context("Embedded prompt template 'readme-link.prompt' not found in binary")?;
         let template = std::str::from_utf8(asset.data.as_ref())
@@ -112,10 +187,60 @@ impl SpecService {
             .replace("{{domain}}", domain);
 
         eprintln!("[moeb] linking specification in README...");
-        let _ = crate::agent::run_agent_loop(self.ai.as_ref(), &prompt, working_dir)?;
+
+        let noop_trace = Arc::new(TraceContext::new(TraceConfig {
+            command: TraceCommand::Spec,
+            spec: String::new(),
+            adapter: String::new(),
+            model: String::new(),
+            retention: 0,
+            file_content_mode,
+        }));
+        let ai = (self.ai_factory)(Arc::clone(&noop_trace))?;
+        let tools = crate::agent::file_tools();
+        let executor = crate::agent::RealToolExecutor::new(
+            Arc::clone(&noop_trace),
+            file_content_mode,
+            1,
+        );
+        let initial_messages = vec![crate::adapters::Message::User(prompt)];
+        let _ = crate::agent::run_agent_loop_traced(
+            ai.as_ref(),
+            &executor,
+            &tools,
+            working_dir,
+            initial_messages,
+            50,
+            &noop_trace,
+            1,
+        )?;
         println!("Updated: .moeb/README.md");
         Ok(())
     }
+}
+
+fn build_traced_adapter(adapter_name: &str, trace: Arc<TraceContext>) -> Result<Arc<dyn AiPort>> {
+    match adapter_name {
+        "openai" => Ok(Arc::new(OpenAiAdapter::from_secrets_and_config_with_trace(trace)?)),
+        "anthropic" => Ok(Arc::new(AnthropicAdapter::from_secrets_and_config_with_trace(trace)?)),
+        "" => anyhow::bail!("No adapter configured. Run `moeb use <adapter>` first."),
+        other => anyhow::bail!(
+            "Adapter '{}' is not recognised. Run `moeb use <adapter>` to reconfigure.",
+            other
+        ),
+    }
+}
+
+fn sanitize_slug(input: &str) -> String {
+    input
+        .chars()
+        .map(|c| if c.is_alphanumeric() || c == '-' { c } else { '-' })
+        .collect::<String>()
+        .trim_matches('-')
+        .to_string()
+        .chars()
+        .take(40)
+        .collect()
 }
 
 // ── Frontmatter parsing ───────────────────────────────────────────────────────
@@ -231,8 +356,6 @@ mod tests {
         )
     }
 
-    // Frontmatter parsing
-
     #[test]
     fn parse_frontmatter_extracts_domain_and_slug() {
         let (domain, slug, _) = parse_frontmatter(&valid_doc("moeb", "my-spec")).unwrap();
@@ -267,8 +390,6 @@ mod tests {
         assert!(err.to_string().contains("slug"));
     }
 
-    // Section validation
-
     #[test]
     fn validate_sections_passes_for_valid_body() {
         validate_sections(&valid_body()).unwrap();
@@ -294,7 +415,6 @@ mod tests {
 
     #[test]
     fn validate_sections_rejects_wrong_order() {
-        // Put Decisions before Steps
         let body = valid_body()
             .replace(
                 "## Steps\n### Step 1\nDo something.\n\n## Decisions\n### Decision 1\nChose X.",
@@ -318,8 +438,6 @@ mod integration_tests {
     use crate::ports::AiPort;
     use std::collections::VecDeque;
     use std::sync::Mutex;
-
-    // ── Shared helpers ────────────────────────────────────────────────────────
 
     fn spec_body() -> String {
         [
@@ -387,8 +505,6 @@ mod integration_tests {
         fs::write(dir.join("spec-schema.yaml"), "schema: placeholder\n").unwrap();
     }
 
-    // ── Tests ─────────────────────────────────────────────────────────────────
-
     #[test]
     fn run_in_creates_spec_file_at_correct_path() {
         let tmp = tempfile::tempdir().unwrap();
@@ -398,7 +514,7 @@ mod integration_tests {
             AgentResponse::Text(spec_doc("auth", "token-rotation")),
             AgentResponse::Text("Registered.".to_string()),
         ]);
-        SpecService::new(ai).run_in("rotate tokens", tmp.path(), 1).unwrap();
+        SpecService::new(ai).run_in("rotate tokens", tmp.path(), 1, FileContentMode::Embed).unwrap();
 
         let spec_path = tmp.path().join("specifications/auth/auth.token-rotation.md");
         assert!(spec_path.exists(), "spec file must be created");
@@ -419,9 +535,7 @@ mod integration_tests {
         .to_string();
 
         let ai = MockAi::new(vec![
-            // spec generation
             AgentResponse::Text(spec_doc("auth", "token-rotation")),
-            // readme-link agent: write_file call, then done
             AgentResponse::ToolCalls(vec![ToolCall {
                 id: "c1".to_string(),
                 name: "write_file".to_string(),
@@ -429,7 +543,7 @@ mod integration_tests {
             }]),
             AgentResponse::Text("Done.".to_string()),
         ]);
-        SpecService::new(ai).run_in("rotate tokens", tmp.path(), 1).unwrap();
+        SpecService::new(ai).run_in("rotate tokens", tmp.path(), 1, FileContentMode::Embed).unwrap();
 
         let readme = fs::read_to_string(tmp.path().join("README.md")).unwrap();
         assert!(
@@ -444,14 +558,11 @@ mod integration_tests {
         setup_harness(&tmp);
 
         let ai = MockAi::new(vec![
-            // first attempt: no frontmatter — validation will fail
             AgentResponse::Text("No frontmatter here, just prose.".to_string()),
-            // second attempt: valid spec
             AgentResponse::Text(spec_doc("auth", "token-rotation")),
-            // readme-link agent
             AgentResponse::Text("Registered.".to_string()),
         ]);
-        SpecService::new(ai).run_in("rotate tokens", tmp.path(), 2).unwrap();
+        SpecService::new(ai).run_in("rotate tokens", tmp.path(), 2, FileContentMode::Embed).unwrap();
 
         let spec_path = tmp.path().join("specifications/auth/auth.token-rotation.md");
         assert!(spec_path.exists(), "spec file must be created after retry");
@@ -467,7 +578,7 @@ mod integration_tests {
             AgentResponse::Text("No frontmatter — attempt 2.".to_string()),
         ]);
         let err = SpecService::new(ai)
-            .run_in("rotate tokens", tmp.path(), 2)
+            .run_in("rotate tokens", tmp.path(), 2, FileContentMode::Embed)
             .unwrap_err();
         let msg = err.to_string();
         assert!(

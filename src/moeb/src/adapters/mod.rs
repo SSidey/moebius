@@ -5,26 +5,24 @@ pub mod openai;
 pub mod retry;
 
 use anyhow::Result;
+use serde::{Deserialize, Serialize};
 
 // ── Wire types ───────────────────────────────────────────────────────────────
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "role", rename_all = "snake_case")]
 pub enum Message {
     System(String),
     User(String),
-    /// Plain assistant text reply
     Assistant(String),
-    /// Assistant turn that contains only tool calls (no prose content)
     AssistantToolCalls(Vec<ToolCall>),
-    /// Result returned to the model after executing a tool call
     ToolResult { call_id: String, content: String },
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ToolCall {
     pub id: String,
     pub name: String,
-    /// Raw JSON string of the arguments object
     pub arguments: String,
 }
 

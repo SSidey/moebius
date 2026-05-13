@@ -49,6 +49,10 @@ impl AdapterConfig {
 pub struct MoebConfig {
     pub active_adapter: Option<String>,
     pub spec_retry_limit: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub run_retention: Option<i32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub log_file_content: Option<bool>,
     #[serde(default, skip_serializing_if = "HashMap::is_empty")]
     pub adapters: HashMap<String, AdapterConfig>,
 }
@@ -56,6 +60,14 @@ pub struct MoebConfig {
 impl MoebConfig {
     pub fn effective_spec_retry_limit(&self) -> u32 {
         self.spec_retry_limit.unwrap_or(3)
+    }
+
+    pub fn effective_run_retention(&self) -> i32 {
+        self.run_retention.unwrap_or(-1)
+    }
+
+    pub fn effective_log_file_content(&self) -> bool {
+        self.log_file_content.unwrap_or(true)
     }
 
     pub fn adapter_config(&self, name: &str) -> AdapterConfig {
@@ -266,5 +278,33 @@ pub(crate) mod tests {
         MoebConfig::default().save().unwrap();
         let text = fs::read_to_string(config_path()).unwrap();
         assert!(!text.contains("adapters"), "config.toml must not contain 'adapters' when map is empty");
+    }
+
+    #[test]
+    fn run_retention_defaults_to_minus_one() {
+        let config = MoebConfig::default();
+        assert_eq!(config.effective_run_retention(), -1);
+    }
+
+    #[test]
+    fn log_file_content_defaults_to_true() {
+        let config = MoebConfig::default();
+        assert!(config.effective_log_file_content());
+    }
+
+    #[test]
+    fn kernel_config_round_trips() {
+        let (_dir, _guard) = in_temp_dir();
+        fs::create_dir_all(MOEB_DIR).unwrap();
+        let mut config = MoebConfig::default();
+        config.run_retention = Some(5);
+        config.log_file_content = Some(false);
+        config.save().unwrap();
+        let loaded = MoebConfig::load().unwrap();
+        assert_eq!(loaded.run_retention, Some(5));
+        assert_eq!(loaded.log_file_content, Some(false));
+        let text = fs::read_to_string(config_path()).unwrap();
+        assert!(text.contains("run_retention"), "run_retention must be written");
+        assert!(text.contains("log_file_content"), "log_file_content must be written");
     }
 }

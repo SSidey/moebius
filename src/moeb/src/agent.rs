@@ -2,48 +2,198 @@ use anyhow::{Context, Result};
 use serde_json::json;
 use std::fs;
 use std::path::Path;
+use std::sync::Arc;
 
 use crate::adapters::{AgentResponse, Message, ToolDef};
 use crate::ports::AiPort;
+use crate::trace::{
+    AgentFinishReason, AgentFinishedEvent, FileContentMode, ToolCallEvent, TraceContext, TraceEvent,
+    TurnEndEvent, TurnResponseType, TurnStartEvent, apply_content_policy,
+};
 
 const MAX_TURNS: usize = 50;
 
+// ── ToolExecutorPort ──────────────────────────────────────────────────────────
+
+pub trait ToolExecutorPort: Send + Sync {
+    fn execute(
+        &self,
+        name: &str,
+        call_id: &str,
+        args: &serde_json::Value,
+        working_dir: &Path,
+    ) -> Result<String>;
+}
+
+// ── RealToolExecutor ──────────────────────────────────────────────────────────
+
+pub struct RealToolExecutor {
+    pub trace: Arc<TraceContext>,
+    pub file_content_mode: FileContentMode,
+    pub attempt: u32,
+    pub current_turn: std::sync::atomic::AtomicU32,
+}
+
+impl RealToolExecutor {
+    pub fn new(trace: Arc<TraceContext>, file_content_mode: FileContentMode, attempt: u32) -> Self {
+        Self {
+            trace,
+            file_content_mode,
+            attempt,
+            current_turn: std::sync::atomic::AtomicU32::new(1),
+        }
+    }
+
+    pub fn set_turn(&self, turn: u32) {
+        self.current_turn.store(turn, std::sync::atomic::Ordering::SeqCst);
+    }
+}
+
+impl ToolExecutorPort for RealToolExecutor {
+    fn execute(
+        &self,
+        name: &str,
+        call_id: &str,
+        args: &serde_json::Value,
+        working_dir: &Path,
+    ) -> Result<String> {
+        let start = std::time::Instant::now();
+        let raw_result = execute_tool_inner(name, args, working_dir);
+        let duration_ms = start.elapsed().as_millis() as u64;
+
+        let turn = self.current_turn.load(std::sync::atomic::Ordering::SeqCst);
+        let (stored_result, content_hash, chars) =
+            apply_content_policy(name, &raw_result, self.file_content_mode);
+
+        let success = raw_result.is_ok();
+        let return_val = match &raw_result {
+            Ok(s) => s.clone(),
+            Err(e) => format!("Error: {}", e),
+        };
+
+        self.trace.push(TraceEvent::ToolCall(ToolCallEvent {
+            attempt: self.attempt,
+            turn,
+            call_id: call_id.to_string(),
+            tool: name.to_string(),
+            args: args.clone(),
+            result: stored_result,
+            content_hash,
+            chars,
+            success,
+            duration_ms,
+        }));
+
+        Ok(return_val)
+    }
+}
+
+// ── Agent loop ────────────────────────────────────────────────────────────────
+
 /// Drive an agent loop until the model produces a plain text response or MAX_TURNS is reached.
-/// All file tool paths are resolved relative to `working_dir`.
 pub fn run_agent_loop(
     adapter: &dyn AiPort,
     initial_prompt: &str,
     working_dir: &Path,
 ) -> Result<String> {
     let tools = file_tools();
-    let mut messages: Vec<Message> = vec![Message::User(initial_prompt.to_string())];
+    let messages: Vec<Message> = vec![Message::User(initial_prompt.to_string())];
+    let noop_trace = Arc::new(crate::trace::TraceContext::new(crate::trace::TraceConfig {
+        command: crate::trace::TraceCommand::Run,
+        spec: String::new(),
+        adapter: String::new(),
+        model: String::new(),
+        retention: 0,
+        file_content_mode: FileContentMode::Embed,
+    }));
+    let executor = RealToolExecutor::new(noop_trace.clone(), FileContentMode::Embed, 1);
+    run_agent_loop_inner(adapter, &executor, &tools, working_dir, messages, MAX_TURNS, &noop_trace, 1)
+}
 
-    for turn in 0..MAX_TURNS {
+pub fn run_agent_loop_traced(
+    adapter: &dyn AiPort,
+    tool_exec: &dyn ToolExecutorPort,
+    tools: &[ToolDef],
+    working_dir: &Path,
+    initial_messages: Vec<Message>,
+    max_turns: usize,
+    trace: &TraceContext,
+    attempt: u32,
+) -> Result<String> {
+    run_agent_loop_inner(adapter, tool_exec, tools, working_dir, initial_messages, max_turns, trace, attempt)
+}
+
+fn run_agent_loop_inner(
+    adapter: &dyn AiPort,
+    tool_exec: &dyn ToolExecutorPort,
+    tools: &[ToolDef],
+    working_dir: &Path,
+    initial_messages: Vec<Message>,
+    max_turns: usize,
+    trace: &TraceContext,
+    attempt: u32,
+) -> Result<String> {
+    let mut messages = initial_messages;
+
+    for turn in 0..max_turns {
+        let turn_num = (turn + 1) as u32;
+
+        trace.current_turn.store(turn_num, std::sync::atomic::Ordering::SeqCst);
+        trace.current_attempt.store(attempt, std::sync::atomic::Ordering::SeqCst);
+
+        trace.push(TraceEvent::TurnStart(TurnStartEvent {
+            attempt,
+            turn: turn_num,
+            messages_sent: messages
+                .iter()
+                .map(|m| serde_json::to_value(m).unwrap_or(serde_json::Value::Null))
+                .collect(),
+        }));
+
         let response = adapter
-            .send(&messages, &tools)
-            .with_context(|| format!("AI adapter call failed on turn {}", turn + 1))?;
+            .send(&messages, tools)
+            .with_context(|| format!("AI adapter call failed on turn {}", turn_num))?;
 
-        match response {
+        match &response {
             AgentResponse::Text(text) => {
-                eprintln!("[moeb] agent finished after {} turn(s)", turn + 1);
-                return Ok(text);
+                eprintln!("[moeb] agent finished after {} turn(s)", turn_num);
+                trace.push(TraceEvent::TurnEnd(TurnEndEvent {
+                    attempt,
+                    turn: turn_num,
+                    response_type: TurnResponseType::Text,
+                    response_content: serde_json::Value::String(text.clone()),
+                }));
+                trace.push(TraceEvent::AgentFinished(AgentFinishedEvent {
+                    attempt,
+                    turns: turn_num,
+                    reason: AgentFinishReason::Completion,
+                }));
+                return Ok(text.clone());
             }
 
             AgentResponse::ToolCalls(calls) => {
-                eprintln!("[moeb] turn {}: {} tool call(s)", turn + 1, calls.len());
-                for call in &calls {
+                eprintln!("[moeb] turn {}: {} tool call(s)", turn_num, calls.len());
+                for call in calls {
                     let preview = truncate(&call.arguments, 120);
                     eprintln!("  → {}({})", call.name, preview);
                 }
 
+                trace.push(TraceEvent::TurnEnd(TurnEndEvent {
+                    attempt,
+                    turn: turn_num,
+                    response_type: TurnResponseType::ToolCalls,
+                    response_content: serde_json::to_value(calls).unwrap_or(serde_json::Value::Null),
+                }));
+
                 messages.push(Message::AssistantToolCalls(calls.clone()));
 
-                for call in &calls {
-                    let result = execute_tool(&call.name, &call.arguments, working_dir);
-                    let content = match &result {
+                for call in calls {
+                    let args: serde_json::Value = serde_json::from_str(&call.arguments)
+                        .with_context(|| format!("Invalid JSON arguments for tool '{}'", call.name))?;
+                    let content = match tool_exec.execute(&call.name, &call.id, &args, working_dir) {
                         Ok(output) => {
                             eprintln!("  ✓ {}: {} chars", call.name, output.len());
-                            output.clone()
+                            output
                         }
                         Err(e) => {
                             eprintln!("  ✗ {}: {}", call.name, e);
@@ -61,14 +211,19 @@ pub fn run_agent_loop(
 
     eprintln!(
         "[moeb] warning: agent loop reached the maximum of {} turns and was halted.",
-        MAX_TURNS
+        max_turns
     );
+    trace.push(TraceEvent::AgentFinished(AgentFinishedEvent {
+        attempt,
+        turns: max_turns as u32,
+        reason: AgentFinishReason::MaxTurns,
+    }));
     Ok(String::new())
 }
 
 // ── Tool definitions ──────────────────────────────────────────────────────────
 
-fn file_tools() -> Vec<ToolDef> {
+pub fn file_tools() -> Vec<ToolDef> {
     vec![
         ToolDef {
             name: "read_file",
@@ -146,12 +301,9 @@ fn file_tools() -> Vec<ToolDef> {
     ]
 }
 
-// ── Tool execution ────────────────────────────────────────────────────────────
+// ── Tool execution (inner) ────────────────────────────────────────────────────
 
-fn execute_tool(name: &str, arguments: &str, working_dir: &Path) -> Result<String> {
-    let args: serde_json::Value =
-        serde_json::from_str(arguments).with_context(|| format!("Invalid JSON arguments: {}", arguments))?;
-
+pub fn execute_tool_inner(name: &str, args: &serde_json::Value, working_dir: &Path) -> Result<String> {
     match name {
         "read_file" => {
             let rel = args["path"].as_str().context("read_file: missing 'path'")?;
@@ -397,8 +549,8 @@ mod tests {
     fn execute_tool_search_files_via_json() {
         let tmp = tempfile::tempdir().unwrap();
         setup(&tmp);
-        let args = serde_json::json!({"path": "a/", "extension": "rs"}).to_string();
-        let result = execute_tool("search_files", &args, tmp.path()).unwrap();
+        let args = serde_json::json!({"path": "a/", "extension": "rs"});
+        let result = execute_tool_inner("search_files", &args, tmp.path()).unwrap();
         let lines: Vec<&str> = result.lines().collect();
         assert_eq!(lines.len(), 2);
     }
@@ -407,8 +559,8 @@ mod tests {
     fn execute_tool_grep_files_via_json() {
         let tmp = tempfile::tempdir().unwrap();
         setup(&tmp);
-        let args = serde_json::json!({"pattern": "struct Baz", "path": "a/"}).to_string();
-        let result = execute_tool("grep_files", &args, tmp.path()).unwrap();
+        let args = serde_json::json!({"pattern": "struct Baz", "path": "a/"});
+        let result = execute_tool_inner("grep_files", &args, tmp.path()).unwrap();
         assert!(result.contains("baz.rs"));
         assert!(result.contains("struct Baz"));
     }
@@ -418,8 +570,8 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         fs::write(tmp.path().join("alpha.txt"), "content-alpha").unwrap();
         fs::write(tmp.path().join("beta.txt"), "content-beta").unwrap();
-        let args = serde_json::json!({"paths": ["alpha.txt", "beta.txt"]}).to_string();
-        let result = execute_tool("read_files", &args, tmp.path()).unwrap();
+        let args = serde_json::json!({"paths": ["alpha.txt", "beta.txt"]});
+        let result = execute_tool_inner("read_files", &args, tmp.path()).unwrap();
         assert!(result.contains("=== alpha.txt ==="));
         assert!(result.contains("content-alpha"));
         assert!(result.contains("=== beta.txt ==="));
@@ -430,8 +582,8 @@ mod tests {
     fn read_files_reports_error_inline_for_missing_path() {
         let tmp = tempfile::tempdir().unwrap();
         fs::write(tmp.path().join("real.txt"), "real-content").unwrap();
-        let args = serde_json::json!({"paths": ["real.txt", "nonexistent.txt"]}).to_string();
-        let result = execute_tool("read_files", &args, tmp.path()).unwrap();
+        let args = serde_json::json!({"paths": ["real.txt", "nonexistent.txt"]});
+        let result = execute_tool_inner("read_files", &args, tmp.path()).unwrap();
         assert!(result.contains("real-content"), "valid file content must be present");
         assert!(result.contains("=== nonexistent.txt ==="), "missing file must have a section header");
         assert!(result.contains("Error:"), "missing file must produce an inline error");

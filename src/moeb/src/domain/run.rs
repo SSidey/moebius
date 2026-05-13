@@ -3,8 +3,14 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
+use crate::adapters::anthropic::AnthropicAdapter;
+use crate::adapters::openai::OpenAiAdapter;
 use crate::assets::Prompts;
+use crate::config::MoebConfig;
 use crate::ports::AiPort;
+use crate::trace::{
+    FileContentMode, TraceCommand, TraceConfig, TraceContext, TraceOutcome,
+};
 
 const PROMPT_FILE: &str = "run.prompt";
 const SPEC_TOKEN: &str = "{{spec}}";
@@ -13,16 +19,32 @@ const SPEC_CONTENT_TOKEN: &str = "{{spec_content}}";
 const SPECS_DIR: &str = ".moeb/specifications";
 const README_PATH: &str = ".moeb/README.md";
 
+type AdapterFactory = Arc<dyn Fn(Arc<TraceContext>) -> Result<Arc<dyn AiPort>> + Send + Sync>;
+
 pub struct RunService {
-    ai: Arc<dyn AiPort>,
+    ai_factory: AdapterFactory,
 }
 
 impl RunService {
-    pub fn new(ai: Arc<dyn AiPort>) -> Self {
-        Self { ai }
+    /// For production use: builds the adapter from config with the trace injected.
+    pub fn from_config() -> Self {
+        Self {
+            ai_factory: Arc::new(|trace| {
+                let cfg = MoebConfig::load().unwrap_or_default();
+                let name = cfg.active_adapter.clone().unwrap_or_default();
+                build_traced_adapter(&name, trace)
+            }),
+        }
     }
 
-    pub fn run(&self, spec: &str) -> Result<()> {
+    /// For tests: wraps a pre-built adapter; trace will have turn/tool events but not HTTP events.
+    pub fn new(ai: Arc<dyn AiPort>) -> Self {
+        Self {
+            ai_factory: Arc::new(move |_trace| Ok(Arc::clone(&ai))),
+        }
+    }
+
+    pub fn run(&self, spec: &str, file_content_mode: FileContentMode) -> Result<()> {
         let harness = Path::new(SPECS_DIR);
         if !harness.exists() {
             anyhow::bail!(".moeb/specifications/ not found. Run `moeb init` first.");
@@ -67,12 +89,70 @@ impl RunService {
             .replace(README_TOKEN, &readme_content)
             .replace(SPEC_CONTENT_TOKEN, &spec_content);
 
+        let spec_slug = spec_path
+            .file_stem()
+            .map(|s| s.to_string_lossy().to_string())
+            .unwrap_or_else(|| spec.to_string());
+
+        let cfg = MoebConfig::load().unwrap_or_default();
+        let adapter_name = cfg.active_adapter.clone().unwrap_or_default();
+        let adapter_cfg = cfg.adapter_config(&adapter_name);
+        let model = adapter_cfg.effective_model("unknown");
+
+        let trace_config = TraceConfig {
+            command: TraceCommand::Run,
+            spec: spec_slug,
+            adapter: adapter_name,
+            model,
+            retention: cfg.effective_run_retention(),
+            file_content_mode,
+        };
+        let trace = Arc::new(TraceContext::new(trace_config));
+
+        let ai = (self.ai_factory)(Arc::clone(&trace))?;
+
         let working_dir = Path::new(".");
-        let result = crate::agent::run_agent_loop(self.ai.as_ref(), &prompt, working_dir)?;
+        let tools = crate::agent::file_tools();
+        let executor = crate::agent::RealToolExecutor::new(
+            Arc::clone(&trace),
+            file_content_mode,
+            1,
+        );
+        let initial_messages = vec![crate::adapters::Message::User(prompt)];
+        let run_result = crate::agent::run_agent_loop_traced(
+            ai.as_ref(),
+            &executor,
+            &tools,
+            working_dir,
+            initial_messages,
+            50,
+            &trace,
+            1,
+        );
+
+        let (outcome, err_msg) = match &run_result {
+            Ok(_) => (TraceOutcome::Success, None),
+            Err(e) => (TraceOutcome::Failure, Some(e.to_string())),
+        };
+        let _ = trace.finalize(outcome, err_msg);
+
+        let result = run_result?;
         if !result.is_empty() {
             println!("{}", result);
         }
         Ok(())
+    }
+}
+
+fn build_traced_adapter(adapter_name: &str, trace: Arc<TraceContext>) -> Result<Arc<dyn AiPort>> {
+    match adapter_name {
+        "openai" => Ok(Arc::new(OpenAiAdapter::from_secrets_and_config_with_trace(trace)?)),
+        "anthropic" => Ok(Arc::new(AnthropicAdapter::from_secrets_and_config_with_trace(trace)?)),
+        "" => anyhow::bail!("No adapter configured. Run `moeb use <adapter>` first."),
+        other => anyhow::bail!(
+            "Adapter '{}' is not recognised. Run `moeb use <adapter>` to reconfigure.",
+            other
+        ),
     }
 }
 
@@ -149,7 +229,7 @@ mod tests {
         });
 
         let service = RunService::new(stub.clone() as Arc<dyn AiPort>);
-        service.run("test.spec").expect("run should succeed");
+        service.run("test.spec", crate::trace::FileContentMode::Embed).expect("run should succeed");
 
         let captured = stub.captured.lock().unwrap();
         let prompt = captured.as_ref().expect("prompt should have been captured");

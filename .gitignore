@@ -4,5 +4,8 @@ src/moeb/target/
 # Moeb secrets — must never be committed
 .moeb/.secrets
 
+# Moeb trace files — per-invocation data, not for version control
+.moeb/traces/
+
 # Claude Code local session state — machine-specific, must not be committed
 .claude/settings.local.json
