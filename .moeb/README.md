@@ -92,6 +92,7 @@ Organised by domain. Add a new `###` subsection for each domain as it is introdu
 | Moeb Run Produces No File Writes When Using the Anthropic Adapter | Fixes premature agent loop termination when the Anthropic adapter returns a planning text turn before tool calls, and reinforces run.prompt to prevent preamble narration | [specifications/moeb/moeb.run-anthropic-no-file-writes.md](specifications/moeb/moeb.run-anthropic-no-file-writes.md) |
 | Trace Capture, Replay, and Kernel Configuration | Adds always-on JSON trace capture for moeb run and moeb spec, a moeb configure command for kernel-level config (RUN_RETENTION, LOG_FILE_CONTENT), and a moeb replay command that deterministically replays a trace using AI and tool stubs | [specifications/moeb/moeb.trace-and-replay.md](specifications/moeb/moeb.trace-and-replay.md) |
 | Run Stability: Trace Finalize Visibility and File Read Truncation | Replaces silent `let _ = trace.finalize(...)` calls with stderr warnings and adds a 100 KiB per-file cap to `read_file` and `read_files` results to prevent unbounded context growth | [specifications/moeb/moeb.trace-finalize-and-read-cap.md](specifications/moeb/moeb.trace-finalize-and-read-cap.md) |
+| Targeted File Reads: Line-Range Access Tool | Adds a `read_file_range` tool that returns only a requested line range (capped at 300 lines), and updates `run.prompt` to prefer it over `read_files` for targeted lookups after `grep_files` identifies a line number | [specifications/moeb/moeb.read-file-range.md](specifications/moeb/moeb.read-file-range.md) |
 
 
 ### vcs
