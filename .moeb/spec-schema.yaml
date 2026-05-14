@@ -18,6 +18,25 @@ spec:
   # Must match the folder name under specifications/.
   # Example: "auth"
 
+  status: string
+  # Lifecycle state of this specification.
+  # Required. Must be one of: active, superseded, draft.
+  #   active     — the specification is currently governing the codebase.
+  #   superseded — a later specification has overridden this one; it remains
+  #                as an immutable historical record.
+  #   draft      — the specification is being authored and is not yet
+  #                considered part of the harness.
+
+  supersedes:          # optional
+    # Formal record of decisions in parent specifications that this spec overrides.
+    # Omit entirely if this spec does not override any named decision.
+    # When present, prose rationale in the Decisions section is still required —
+    # this block is the machine-readable companion, not a replacement.
+    - path: string     # relative path to the superseded spec from the .moeb/ root
+                       # e.g. specifications/moeb/moeb.adapter-config-and-listing.md
+      decision: string # exact title of the decision being overridden
+                       # e.g. "Decision 5 — Fixed 1-second retry delay"
+
   # ---------------------------------------------------------------------------
   # Requirement
   # ---------------------------------------------------------------------------

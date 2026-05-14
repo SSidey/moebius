@@ -4,7 +4,7 @@ use std::sync::Arc;
 
 use crate::config::{MoebConfig, Secrets};
 use crate::ports::AiPort;
-use crate::trace::{HttpRequestEvent, HttpRetryEvent, QuotaWarningEvent, TraceContext, TraceEvent};
+use crate::trace::{CacheUsageEvent, HttpRequestEvent, HttpRetryEvent, QuotaWarningEvent, TraceContext, TraceEvent};
 use super::{retry, Adapter, AgentResponse, Message, ToolCall, ToolDef};
 
 const API_URL: &str = "https://api.openai.com/v1/chat/completions";
@@ -153,6 +153,21 @@ impl Adapter for OpenAiAdapter {
                 response_body: response_body.clone(),
                 duration_ms,
             }));
+
+            if status.is_success() {
+                let cache_read = response_body
+                    .pointer("/usage/prompt_tokens_details/cached_tokens")
+                    .and_then(|v| v.as_u64())
+                    .unwrap_or(0);
+                if cache_read > 0 {
+                    self.trace.push(TraceEvent::CacheUsage(CacheUsageEvent {
+                        attempt,
+                        turn,
+                        cache_read_tokens: cache_read,
+                        cache_created_tokens: 0,
+                    }));
+                }
+            }
 
             if status_u16 == 429 || status.is_server_error() {
                 last_err = Some(anyhow::anyhow!("OpenAI API error {}: {}", status, text));

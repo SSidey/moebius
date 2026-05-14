@@ -35,8 +35,23 @@ pub fn run_configure(key: &str, value: &str) -> Result<()> {
             cfg.save()?;
             println!("LOG_FILE_CONTENT set to {}.", parsed);
         }
+        "PROMPT_CACHE" => {
+            let v = value.to_lowercase();
+            let parsed = match v.as_str() {
+                "true" | "1" | "yes" => true,
+                "false" | "0" | "no" => false,
+                _ => anyhow::bail!(
+                    "Invalid value '{}' for PROMPT_CACHE. Use true or false.",
+                    value
+                ),
+            };
+            let mut cfg = MoebConfig::load()?;
+            cfg.prompt_cache = Some(parsed);
+            cfg.save()?;
+            println!("PROMPT_CACHE set to {}", cfg.effective_prompt_cache());
+        }
         other => anyhow::bail!(
-            "Unknown configuration key \"{}\". Valid keys: RUN_RETENTION, LOG_FILE_CONTENT",
+            "Unknown configuration key \"{}\". Valid keys: RUN_RETENTION, LOG_FILE_CONTENT, PROMPT_CACHE",
             other
         ),
     }
@@ -47,6 +62,7 @@ pub fn run_list() -> Result<()> {
     let cfg = MoebConfig::load().unwrap_or_default();
     let retention = cfg.effective_run_retention();
     let log_content = cfg.effective_log_file_content();
+    let prompt_cache = cfg.effective_prompt_cache();
     println!(
         "{:<20} {:<8} {:<10} {}",
         "KEY", "VALUE", "DEFAULT", "DESCRIPTION"
@@ -64,6 +80,13 @@ pub fn run_list() -> Result<()> {
         log_content,
         "true",
         "Embed file content in traces (false=hash-only, disables replay)"
+    );
+    println!(
+        "{:<20} {:<8} {:<10} {}",
+        "PROMPT_CACHE",
+        prompt_cache,
+        "true",
+        "Enable Anthropic prompt caching (cache_control on system prompt)"
     );
     Ok(())
 }
@@ -103,6 +126,15 @@ mod tests {
     }
 
     #[test]
+    fn configure_prompt_cache_false_round_trips() {
+        let (_dir, _guard) = in_temp_dir();
+        run_configure("PROMPT_CACHE", "false").unwrap();
+        let loaded = MoebConfig::load().unwrap();
+        assert_eq!(loaded.prompt_cache, Some(false));
+        assert!(!loaded.effective_prompt_cache());
+    }
+
+    #[test]
     fn configure_rejects_invalid_retention() {
         let (_dir, _guard) = in_temp_dir();
         let err = run_configure("RUN_RETENTION", "abc").unwrap_err();
@@ -135,7 +167,7 @@ mod tests {
             msg
         );
         assert!(
-            msg.contains("RUN_RETENTION") && msg.contains("LOG_FILE_CONTENT"),
+            msg.contains("RUN_RETENTION") && msg.contains("LOG_FILE_CONTENT") && msg.contains("PROMPT_CACHE"),
             "expected valid keys listed, got: {}",
             msg
         );

@@ -24,5 +24,10 @@ pub fn run() -> Result<()> {
         let active = if config.active_adapter.as_deref() == Some(name) { "yes" } else { "no" };
         println!("{:<12} {:<16} {}", name, state, active);
     }
+    if config.effective_prompt_cache() {
+        println!("Prompt cache: enabled   (Anthropic: explicit; OpenAI: automatic)");
+    } else {
+        println!("Prompt cache: disabled  (Anthropic: no cache_control sent; OpenAI: unaffected)");
+    }
     Ok(())
 }

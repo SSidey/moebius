@@ -4,7 +4,7 @@ use std::sync::Arc;
 
 use crate::config::{MoebConfig, Secrets};
 use crate::ports::AiPort;
-use crate::trace::{HttpRequestEvent, HttpRetryEvent, QuotaWarningEvent, TraceContext, TraceEvent};
+use crate::trace::{CacheUsageEvent, HttpRequestEvent, HttpRetryEvent, QuotaWarningEvent, TraceContext, TraceEvent};
 use super::{retry, Adapter, AgentResponse, Message, ToolCall, ToolDef};
 
 const API_URL: &str = "https://api.anthropic.com/v1/messages";
@@ -18,6 +18,7 @@ pub struct AnthropicAdapter {
     pub model: String,
     pub retries: u32,
     pub timeout_secs: u64,
+    pub prompt_cache: bool,
     client: reqwest::blocking::Client,
     trace: Arc<TraceContext>,
 }
@@ -48,6 +49,7 @@ impl AnthropicAdapter {
             model: adapter_cfg.effective_model(DEFAULT_MODEL),
             retries: adapter_cfg.effective_retries(),
             timeout_secs: adapter_cfg.effective_timeout_secs(DEFAULT_TIMEOUT_SECS),
+            prompt_cache: cfg.effective_prompt_cache(),
             client: reqwest::blocking::Client::new(),
             trace,
         })
@@ -62,7 +64,7 @@ impl AiPort for AnthropicAdapter {
 
 impl Adapter for AnthropicAdapter {
     fn send(&self, messages: &[Message], tools: &[ToolDef]) -> Result<AgentResponse> {
-        let body = build_request_body(&self.model, messages, tools)?;
+        let body = build_request_body(&self.model, messages, tools, self.prompt_cache)?;
         let attempt = self.trace.current_attempt.load(std::sync::atomic::Ordering::SeqCst);
         let turn = self.trace.current_turn.load(std::sync::atomic::Ordering::SeqCst);
 
@@ -72,16 +74,17 @@ impl Adapter for AnthropicAdapter {
         for http_attempt in 0..max_attempts {
             let start = std::time::Instant::now();
 
-            let response = match self
+            let mut req = self
                 .client
                 .post(API_URL)
                 .header("x-api-key", &self.api_key)
                 .header("anthropic-version", ANTHROPIC_VERSION)
                 .header("content-type", "application/json")
-                .timeout(std::time::Duration::from_secs(self.timeout_secs))
-                .json(&body)
-                .send()
-            {
+                .timeout(std::time::Duration::from_secs(self.timeout_secs));
+            if self.prompt_cache {
+                req = req.header("anthropic-beta", "prompt-caching-2024-07-31");
+            }
+            let response = match req.json(&body).send() {
                 Err(e) => {
                     let duration_ms = start.elapsed().as_millis() as u64;
                     let reason = format!("transport error: {}", e);
@@ -157,6 +160,25 @@ impl Adapter for AnthropicAdapter {
                 response_body: response_body.clone(),
                 duration_ms,
             }));
+
+            if status.is_success() {
+                let cache_read = response_body
+                    .pointer("/usage/cache_read_input_tokens")
+                    .and_then(|v| v.as_u64())
+                    .unwrap_or(0);
+                let cache_created = response_body
+                    .pointer("/usage/cache_creation_input_tokens")
+                    .and_then(|v| v.as_u64())
+                    .unwrap_or(0);
+                if cache_read > 0 || cache_created > 0 {
+                    self.trace.push(TraceEvent::CacheUsage(CacheUsageEvent {
+                        attempt,
+                        turn,
+                        cache_read_tokens: cache_read,
+                        cache_created_tokens: cache_created,
+                    }));
+                }
+            }
 
             if status_u16 == 429 || status.is_server_error() {
                 last_err = Some(anyhow::anyhow!("Anthropic API error {}: {}", status, text));
@@ -235,6 +257,7 @@ pub(crate) fn build_request_body(
     model: &str,
     messages: &[Message],
     tools: &[ToolDef],
+    prompt_cache: bool,
 ) -> Result<Value> {
     let mut system_prompt: Option<String> = None;
     let non_system: Vec<&Message> = messages
@@ -266,7 +289,15 @@ pub(crate) fn build_request_body(
     body.insert("model".into(), json!(model));
     body.insert("max_tokens".into(), json!(MAX_TOKENS));
     if let Some(sys) = system_prompt {
-        body.insert("system".into(), json!(sys));
+        if prompt_cache {
+            body.insert("system".into(), json!([{
+                "type": "text",
+                "text": sys,
+                "cache_control": {"type": "ephemeral"}
+            }]));
+        } else {
+            body.insert("system".into(), json!(sys));
+        }
     }
     body.insert("messages".into(), json!(anthropic_messages));
     if !tools_json.is_empty() {
@@ -438,7 +469,7 @@ mod tests {
             Message::System("sys".to_string()),
             Message::User("hi".to_string()),
         ];
-        let body = build_request_body("claude-opus-4-7", &messages, &[]).unwrap();
+        let body = build_request_body("claude-opus-4-7", &messages, &[], false).unwrap();
 
         assert_eq!(body["system"], "sys", "system field must be top-level");
 
@@ -503,7 +534,7 @@ mod tests {
             Message::ToolResult { call_id: "c1".to_string(), content: "r1".to_string() },
             Message::ToolResult { call_id: "c2".to_string(), content: "r2".to_string() },
         ];
-        let body = build_request_body("claude-opus-4-7", &messages, &[]).unwrap();
+        let body = build_request_body("claude-opus-4-7", &messages, &[], false).unwrap();
 
         let msgs = body["messages"].as_array().unwrap();
         assert_eq!(msgs.len(), 1, "two ToolResults must be batched into one user message");
@@ -515,5 +546,33 @@ mod tests {
         assert_eq!(content[0]["tool_use_id"], "c1");
         assert_eq!(content[1]["type"], "tool_result");
         assert_eq!(content[1]["tool_use_id"], "c2");
+    }
+
+    #[test]
+    fn build_request_body_caches_system_when_prompt_cache_true() {
+        let (_dir, _guard) = in_temp_dir();
+        let messages = vec![
+            Message::System("sys".to_string()),
+            Message::User("hi".to_string()),
+        ];
+        let body = build_request_body("claude-opus-4-7", &messages, &[], true).unwrap();
+
+        let system = body["system"].as_array()
+            .expect("system must be an array when prompt_cache=true");
+        assert_eq!(system.len(), 1);
+        assert_eq!(system[0]["type"], "text");
+        assert_eq!(system[0]["text"], "sys");
+        assert_eq!(system[0]["cache_control"]["type"], "ephemeral");
+    }
+
+    #[test]
+    fn build_request_body_plain_string_system_when_prompt_cache_false() {
+        let (_dir, _guard) = in_temp_dir();
+        let messages = vec![
+            Message::System("sys".to_string()),
+            Message::User("hi".to_string()),
+        ];
+        let body = build_request_body("claude-opus-4-7", &messages, &[], false).unwrap();
+        assert_eq!(body["system"], "sys", "system must be a plain string when prompt_cache=false");
     }
 }

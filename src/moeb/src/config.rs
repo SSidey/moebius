@@ -53,6 +53,8 @@ pub struct MoebConfig {
     pub run_retention: Option<i32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub log_file_content: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub prompt_cache: Option<bool>,
     #[serde(default, skip_serializing_if = "HashMap::is_empty")]
     pub adapters: HashMap<String, AdapterConfig>,
 }
@@ -68,6 +70,10 @@ impl MoebConfig {
 
     pub fn effective_log_file_content(&self) -> bool {
         self.log_file_content.unwrap_or(true)
+    }
+
+    pub fn effective_prompt_cache(&self) -> bool {
+        self.prompt_cache.unwrap_or(true)
     }
 
     pub fn adapter_config(&self, name: &str) -> AdapterConfig {
@@ -290,6 +296,12 @@ pub(crate) mod tests {
     fn log_file_content_defaults_to_true() {
         let config = MoebConfig::default();
         assert!(config.effective_log_file_content());
+    }
+
+    #[test]
+    fn prompt_cache_defaults_to_true() {
+        let config = MoebConfig::default();
+        assert!(config.effective_prompt_cache(), "prompt_cache must default to true");
     }
 
     #[test]

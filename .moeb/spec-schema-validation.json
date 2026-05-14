@@ -1,0 +1,18 @@
+{
+  "frontmatter": {
+    "required": ["domain", "slug", "status"],
+    "optional": ["supersedes"]
+  },
+  "body": {
+    "required_sections": [
+      "# ",
+      "## Raw Requirement",
+      "## Description",
+      "```mermaid",
+      "## Backlinks",
+      "## Steps",
+      "## Decisions",
+      "## Rubric"
+    ]
+  }
+}

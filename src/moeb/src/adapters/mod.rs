@@ -6,6 +6,33 @@ pub mod retry;
 
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
+use std::sync::Arc;
+
+use crate::config::MoebConfig;
+use crate::ports::{AdapterFactoryPort, AiPort};
+use crate::trace::TraceContext;
+
+pub struct DefaultAdapterFactory;
+
+impl AdapterFactoryPort for DefaultAdapterFactory {
+    fn build(&self, trace: Arc<TraceContext>) -> Result<Arc<dyn AiPort>> {
+        let cfg = MoebConfig::load().unwrap_or_default();
+        let name = cfg.active_adapter.clone().unwrap_or_default();
+        match name.as_str() {
+            "openai" => Ok(Arc::new(
+                crate::adapters::openai::OpenAiAdapter::from_secrets_and_config_with_trace(trace)?
+            )),
+            "anthropic" => Ok(Arc::new(
+                crate::adapters::anthropic::AnthropicAdapter::from_secrets_and_config_with_trace(trace)?
+            )),
+            "" => anyhow::bail!("No adapter configured. Run `moeb use <adapter>` first."),
+            other => anyhow::bail!(
+                "Adapter '{}' is not recognised. Run `moeb use <adapter>` to reconfigure.",
+                other
+            ),
+        }
+    }
+}
 
 // ── Wire types ───────────────────────────────────────────────────────────────
 

@@ -1,4 +1,6 @@
+pub mod adapter_factory;
 pub mod adapter_management;
+pub mod tool_executor;
 pub mod ai;
 pub mod assets;
 pub mod init;
@@ -7,7 +9,9 @@ pub mod run;
 pub mod spec;
 pub mod use_adapter;
 
+pub use adapter_factory::AdapterFactoryPort;
 pub use adapter_management::AdapterManagementPort;
+pub use tool_executor::ToolExecutorPort;
 pub use ai::AiPort;
 pub use assets::AssetPort;
 pub use init::InitPort;

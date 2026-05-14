@@ -90,6 +90,8 @@ pub struct ToolCallEvent {
     pub chars: u64,
     pub success: bool,
     pub duration_ms: u64,
+    #[serde(default)]
+    pub cache_hit: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -107,6 +109,16 @@ pub struct AgentFinishedEvent {
     pub reason: AgentFinishReason,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CacheUsageEvent {
+    pub attempt: u32,
+    pub turn: u32,
+    /// Tokens served from cache (saves full input-token cost).
+    pub cache_read_tokens: u64,
+    /// Tokens written to cache (Anthropic only; 0 for OpenAI automatic caching).
+    pub cache_created_tokens: u64,
+}
+
 // ── Tagged union ──────────────────────────────────────────────────────────────
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -119,6 +131,7 @@ pub enum TraceEvent {
     ToolCall(ToolCallEvent),
     TurnEnd(TurnEndEvent),
     AgentFinished(AgentFinishedEvent),
+    CacheUsage(CacheUsageEvent),
 }
 
 // ── Envelope ──────────────────────────────────────────────────────────────────
@@ -394,5 +407,26 @@ mod tests {
         let (stored, hash, _) = apply_content_policy("write_file", &result, FileContentMode::Hash);
         assert!(stored.is_some());
         assert_eq!(hash, None);
+    }
+
+    #[test]
+    fn cache_usage_event_serde_round_trip() {
+        let event = TraceEvent::CacheUsage(CacheUsageEvent {
+            attempt: 1,
+            turn: 2,
+            cache_read_tokens: 1500,
+            cache_created_tokens: 300,
+        });
+        let json = serde_json::to_string(&event).unwrap();
+        let parsed: TraceEvent = serde_json::from_str(&json).unwrap();
+        if let TraceEvent::CacheUsage(e) = parsed {
+            assert_eq!(e.attempt, 1);
+            assert_eq!(e.turn, 2);
+            assert_eq!(e.cache_read_tokens, 1500);
+            assert_eq!(e.cache_created_tokens, 300);
+        } else {
+            panic!("expected CacheUsage variant");
+        }
+        assert!(json.contains("\"type\":\"cache_usage\""), "type tag must be 'cache_usage', got: {}", json);
     }
 }

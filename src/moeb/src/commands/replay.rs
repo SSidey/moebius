@@ -3,7 +3,8 @@ use std::collections::{HashMap, VecDeque};
 use std::sync::Arc;
 
 use crate::adapters::{AgentResponse, Message, ToolDef};
-use crate::agent::{file_tools, run_agent_loop_traced, ToolExecutorPort};
+use crate::agent::run_agent_loop_traced;
+use crate::ports::ToolExecutorPort;
 use crate::ports::AiPort;
 use crate::trace::{
     AgentFinishReason, FileContentMode, TraceCommand, TraceConfig, TraceContext, TraceEnvelope,
@@ -124,10 +125,12 @@ impl ToolExecutorPort for ReplayToolExecutor {
         call_id: &str,
         _args: &serde_json::Value,
         _working_dir: &std::path::Path,
-    ) -> Result<String> {
+        _current_turn: u32,
+    ) -> Result<(String, bool)> {
         self.results
             .get(call_id)
             .cloned()
+            .map(|r| (r, false))
             .ok_or_else(|| anyhow::anyhow!("ReplayToolExecutor: no saved result for call_id '{}'", call_id))
     }
 }
@@ -288,7 +291,7 @@ pub fn run_replay_from_envelope(envelope: &TraceEnvelope, attempt_override: Opti
         file_content_mode: FileContentMode::Embed,
     }));
 
-    let tools: Vec<ToolDef> = file_tools();
+    let tools: Vec<ToolDef> = crate::tools::ToolRegistry::standard().definitions();
     let working_dir = std::path::Path::new(".");
 
     let result = run_agent_loop_traced(
@@ -348,6 +351,7 @@ mod tests {
                     chars: 500,
                     success: true,
                     duration_ms: 5,
+                    cache_hit: false,
                 }),
                 TraceEvent::TurnEnd(TurnEndEvent {
                     attempt: 1,

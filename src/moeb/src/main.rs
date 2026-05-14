@@ -11,6 +11,7 @@ pub mod commands;
 pub mod config;
 pub mod domain;
 pub mod ports;
+pub mod tools;
 pub mod trace;
 
 #[derive(Parser)]

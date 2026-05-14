@@ -3,10 +3,11 @@ use std::fs;
 use std::path::Path;
 use std::sync::Arc;
 
-use crate::adapters::anthropic::AnthropicAdapter;
-use crate::adapters::openai::OpenAiAdapter;
+use crate::agent::MAX_TURNS;
 use crate::assets::Prompts;
 use crate::config::MoebConfig;
+use crate::ports::AdapterFactoryPort;
+#[cfg(test)]
 use crate::ports::AiPort;
 use crate::trace::{
     FileContentMode, TraceCommand, TraceConfig, TraceContext, TraceOutcome,
@@ -27,28 +28,77 @@ const REQUIRED_SECTIONS: &[&str] = &[
     "## Rubric",
 ];
 
-type AdapterFactory = Arc<dyn Fn(Arc<TraceContext>) -> Result<Arc<dyn AiPort>> + Send + Sync>;
+// ── Validation schema ─────────────────────────────────────────────────────────
+
+#[derive(serde::Deserialize)]
+struct ValidationSchema {
+    frontmatter: FrontmatterSchema,
+    body: BodySchema,
+}
+
+#[derive(serde::Deserialize)]
+struct FrontmatterSchema {
+    required: Vec<String>,
+    #[serde(default)]
+    #[allow(dead_code)]
+    optional: Vec<String>,
+}
+
+#[derive(serde::Deserialize)]
+struct BodySchema {
+    required_sections: Vec<String>,
+}
+
+fn load_validation_schema(working_dir: &Path) -> Option<ValidationSchema> {
+    let path = working_dir.join("spec-schema-validation.json");
+    match fs::read_to_string(&path) {
+        Ok(content) => match serde_json::from_str::<ValidationSchema>(&content) {
+            Ok(schema) => Some(schema),
+            Err(e) => {
+                eprintln!(
+                    "[moeb] warning: spec-schema-validation.json is malformed ({}); \
+                     falling back to built-in validation rules.",
+                    e
+                );
+                None
+            }
+        },
+        Err(_) => {
+            eprintln!(
+                "[moeb] warning: spec-schema-validation.json not found in {:?}; \
+                 falling back to built-in validation rules.",
+                working_dir
+            );
+            None
+        }
+    }
+}
 
 pub struct SpecService {
-    ai_factory: AdapterFactory,
+    factory: Arc<dyn AdapterFactoryPort>,
+}
+
+#[cfg(test)]
+struct FixedAdapterFactory(Arc<dyn AiPort>);
+
+#[cfg(test)]
+impl AdapterFactoryPort for FixedAdapterFactory {
+    fn build(&self, _trace: Arc<TraceContext>) -> anyhow::Result<Arc<dyn AiPort>> {
+        Ok(Arc::clone(&self.0))
+    }
 }
 
 impl SpecService {
-    /// For production use.
     pub fn from_config() -> Self {
         Self {
-            ai_factory: Arc::new(|trace| {
-                let cfg = MoebConfig::load().unwrap_or_default();
-                let name = cfg.active_adapter.clone().unwrap_or_default();
-                build_traced_adapter(&name, trace)
-            }),
+            factory: Arc::new(crate::adapters::DefaultAdapterFactory),
         }
     }
 
-    /// For tests: wraps a pre-built adapter.
+    #[cfg(test)]
     pub fn new(ai: Arc<dyn AiPort>) -> Self {
         Self {
-            ai_factory: Arc::new(move |_trace| Ok(Arc::clone(&ai))),
+            factory: Arc::new(FixedAdapterFactory(ai)),
         }
     }
 
@@ -92,22 +142,24 @@ impl SpecService {
             file_content_mode,
         };
         let trace = Arc::new(TraceContext::new(trace_config));
-        let ai = (self.ai_factory)(Arc::clone(&trace))?;
+        let ai = self.factory.build(Arc::clone(&trace))?;
+
+        let schema = load_validation_schema(working_dir);
+        let required_sections: Vec<String> = schema
+            .as_ref()
+            .map(|s| s.body.required_sections.clone())
+            .unwrap_or_else(|| REQUIRED_SECTIONS.iter().map(|s| s.to_string()).collect());
 
         let mut last_err: anyhow::Error = anyhow::anyhow!("no attempts made");
         let mut total_attempts = 0u32;
 
-        let (domain, slug, body) = 'retry: {
+        let (domain, slug, status, supersedes, body) = 'retry: {
             for attempt in 1..=retry_limit {
                 total_attempts = attempt;
                 trace.current_attempt.store(attempt, std::sync::atomic::Ordering::SeqCst);
 
-                let tools = crate::agent::file_tools();
-                let executor = crate::agent::RealToolExecutor::new(
-                    Arc::clone(&trace),
-                    file_content_mode,
-                    attempt,
-                );
+                let tools = crate::tools::ToolRegistry::standard().definitions();
+                let executor = crate::tools::RealToolExecutor::new();
                 let initial_messages = vec![crate::adapters::Message::User(prompt.clone())];
                 let raw = match crate::agent::run_agent_loop_traced(
                     ai.as_ref(),
@@ -115,7 +167,7 @@ impl SpecService {
                     &tools,
                     working_dir,
                     initial_messages,
-                    50,
+                    MAX_TURNS,
                     &trace,
                     attempt,
                 ) {
@@ -128,9 +180,9 @@ impl SpecService {
                 }
 
                 let result = parse_frontmatter(&raw)
-                    .and_then(|(domain, slug, body)| {
-                        validate_sections(&body)?;
-                        Ok((domain, slug, body))
+                    .and_then(|(domain, slug, status, supersedes, body)| {
+                        validate_sections(&body, &required_sections)?;
+                        Ok((domain, slug, status, supersedes, body))
                     });
 
                 match result {
@@ -151,6 +203,29 @@ impl SpecService {
         trace.set_total_attempts(total_attempts);
         if let Err(e) = trace.finalize(TraceOutcome::Success, None) {
             eprintln!("[moeb] warning: trace could not be saved: {}", e);
+        }
+
+        if status == "draft" {
+            eprintln!("[moeb] note: spec has status 'draft' and is not yet considered governing.");
+        }
+        for (path, decision) in &supersedes {
+            eprintln!("[moeb] spec supersedes: {} — {}", path, decision);
+        }
+
+        // Forward-compatibility guard: warn if the JSON schema requires a field the kernel
+        // has no dedicated parser for yet.
+        if let Some(ref s) = schema {
+            let known_fields: std::collections::HashSet<&str> =
+                ["domain", "slug", "status", "supersedes"].iter().copied().collect();
+            for required_field in &s.frontmatter.required {
+                if !known_fields.contains(required_field.as_str()) {
+                    eprintln!(
+                        "[moeb] warning: schema requires frontmatter field '{}' \
+                         but the kernel has no parser for it yet.",
+                        required_field
+                    );
+                }
+            }
         }
 
         let spec_dir = working_dir.join("specifications").join(&domain);
@@ -200,13 +275,9 @@ impl SpecService {
             retention: 0,
             file_content_mode,
         }));
-        let ai = (self.ai_factory)(Arc::clone(&noop_trace))?;
-        let tools = crate::agent::file_tools();
-        let executor = crate::agent::RealToolExecutor::new(
-            Arc::clone(&noop_trace),
-            file_content_mode,
-            1,
-        );
+        let ai = self.factory.build(Arc::clone(&noop_trace))?;
+        let tools = crate::tools::ToolRegistry::standard().definitions();
+        let executor = crate::tools::RealToolExecutor::new();
         let initial_messages = vec![crate::adapters::Message::User(prompt)];
         let _ = crate::agent::run_agent_loop_traced(
             ai.as_ref(),
@@ -214,24 +285,12 @@ impl SpecService {
             &tools,
             working_dir,
             initial_messages,
-            50,
+            MAX_TURNS,
             &noop_trace,
             1,
         )?;
         println!("Updated: .moeb/README.md");
         Ok(())
-    }
-}
-
-fn build_traced_adapter(adapter_name: &str, trace: Arc<TraceContext>) -> Result<Arc<dyn AiPort>> {
-    match adapter_name {
-        "openai" => Ok(Arc::new(OpenAiAdapter::from_secrets_and_config_with_trace(trace)?)),
-        "anthropic" => Ok(Arc::new(AnthropicAdapter::from_secrets_and_config_with_trace(trace)?)),
-        "" => anyhow::bail!("No adapter configured. Run `moeb use <adapter>` first."),
-        other => anyhow::bail!(
-            "Adapter '{}' is not recognised. Run `moeb use <adapter>` to reconfigure.",
-            other
-        ),
     }
 }
 
@@ -249,7 +308,7 @@ fn sanitize_slug(input: &str) -> String {
 
 // ── Frontmatter parsing ───────────────────────────────────────────────────────
 
-fn parse_frontmatter(content: &str) -> Result<(String, String, String)> {
+fn parse_frontmatter(content: &str) -> Result<(String, String, String, Vec<(String, String)>, String)> {
     let content = content.trim_start();
 
     if !content.starts_with("---") {
@@ -266,17 +325,73 @@ fn parse_frontmatter(content: &str) -> Result<(String, String, String)> {
 
     let mut domain = None;
     let mut slug = None;
+    let mut status: Option<String> = None;
+    let mut supersedes: Vec<(String, String)> = Vec::new();
+    let mut in_supersedes = false;
+    let mut current_path: Option<String> = None;
+    let mut current_decision: Option<String> = None;
 
     for line in fm_text.lines() {
+        if line.trim_start() == "supersedes:" {
+            in_supersedes = true;
+            continue;
+        }
+        if in_supersedes {
+            if !line.starts_with(' ') && !line.starts_with('\t') && !line.starts_with('-') {
+                // Flush any incomplete pair with a warning before leaving the block.
+                if current_path.is_some() || current_decision.is_some() {
+                    eprintln!(
+                        "[moeb] warning: incomplete supersedes entry (path={:?}, decision={:?}) skipped.",
+                        current_path, current_decision
+                    );
+                    current_path = None;
+                    current_decision = None;
+                }
+                in_supersedes = false;
+                // Fall through: this line may carry another top-level key.
+                // Re-process it as a scalar field below.
+            } else if let Some(val) = line.trim_start_matches([' ', '-']).strip_prefix("path:") {
+                // Flush any complete pair before starting a new one.
+                match (current_path.take(), current_decision.take()) {
+                    (Some(p), Some(d)) => supersedes.push((p, d)),
+                    (Some(_), None) | (None, Some(_)) => {
+                        eprintln!(
+                            "[moeb] warning: incomplete supersedes entry skipped (missing path or decision)."
+                        );
+                    }
+                    (None, None) => {}
+                }
+                current_path = Some(val.trim().to_string());
+                continue;
+            } else if let Some(val) = line.trim_start().strip_prefix("decision:") {
+                current_decision = Some(val.trim().trim_matches('"').to_string());
+                continue;
+            } else {
+                continue;
+            }
+        }
         if let Some(val) = line.strip_prefix("domain:") {
             domain = Some(val.trim().to_string());
         } else if let Some(val) = line.strip_prefix("slug:") {
             slug = Some(val.trim().to_string());
+        } else if let Some(val) = line.strip_prefix("status:") {
+            status = Some(val.trim().to_string());
         }
+    }
+    // Flush the last supersedes pair.
+    match (current_path, current_decision) {
+        (Some(p), Some(d)) => supersedes.push((p, d)),
+        (Some(_), None) | (None, Some(_)) => {
+            eprintln!(
+                "[moeb] warning: incomplete supersedes entry skipped (missing path or decision)."
+            );
+        }
+        (None, None) => {}
     }
 
     let domain = domain.context("Frontmatter missing 'domain' field.")?;
     let slug = slug.context("Frontmatter missing 'slug' field.")?;
+    let status = status.context("Frontmatter missing 'status' field.")?;
 
     if domain.is_empty() {
         bail!("Frontmatter 'domain' field is empty.");
@@ -285,27 +400,36 @@ fn parse_frontmatter(content: &str) -> Result<(String, String, String)> {
         bail!("Frontmatter 'slug' field is empty.");
     }
 
-    Ok((domain, slug, body.to_string()))
+    const VALID_STATUSES: &[&str] = &["active", "superseded", "draft"];
+    if !VALID_STATUSES.contains(&status.as_str()) {
+        bail!(
+            "Frontmatter 'status' field has invalid value '{}'. \
+             Must be one of: active, superseded, draft.",
+            status
+        );
+    }
+
+    Ok((domain, slug, status, supersedes, body.to_string()))
 }
 
 // ── Section validation ────────────────────────────────────────────────────────
 
-fn validate_sections(body: &str) -> Result<()> {
-    let mut remaining = REQUIRED_SECTIONS.iter().peekable();
+fn validate_sections(body: &str, required: &[impl AsRef<str>]) -> Result<()> {
+    let mut remaining = required.iter().peekable();
 
     for line in body.lines() {
-        let Some(&expected) = remaining.peek() else {
+        let Some(expected) = remaining.peek() else {
             break;
         };
-        if line.trim_start().starts_with(expected) {
+        if line.trim_start().starts_with(expected.as_ref()) {
             remaining.next();
         }
     }
 
-    if let Some(&missing) = remaining.peek() {
+    if let Some(missing) = remaining.peek() {
         bail!(
             "Required section missing or out of order: '{}'",
-            missing
+            missing.as_ref()
         );
     }
 
@@ -353,7 +477,7 @@ mod tests {
 
     fn valid_doc(domain: &str, slug: &str) -> String {
         format!(
-            "---\ndomain: {}\nslug: {}\n---\n{}",
+            "---\ndomain: {}\nslug: {}\nstatus: active\n---\n{}",
             domain,
             slug,
             valid_body()
@@ -362,14 +486,14 @@ mod tests {
 
     #[test]
     fn parse_frontmatter_extracts_domain_and_slug() {
-        let (domain, slug, _) = parse_frontmatter(&valid_doc("moeb", "my-spec")).unwrap();
+        let (domain, slug, _, _, _) = parse_frontmatter(&valid_doc("moeb", "my-spec")).unwrap();
         assert_eq!(domain, "moeb");
         assert_eq!(slug, "my-spec");
     }
 
     #[test]
     fn parse_frontmatter_strips_block_from_body() {
-        let (_, _, body) = parse_frontmatter(&valid_doc("moeb", "my-spec")).unwrap();
+        let (_, _, _, _, body) = parse_frontmatter(&valid_doc("moeb", "my-spec")).unwrap();
         assert!(!body.contains("domain:"), "body must not contain frontmatter");
         assert!(body.contains("# My Specification"));
     }
@@ -395,21 +519,62 @@ mod tests {
     }
 
     #[test]
+    fn parse_frontmatter_rejects_missing_status() {
+        let doc = "---\ndomain: moeb\nslug: my-spec\n---\n# Title\n";
+        let err = parse_frontmatter(doc).unwrap_err();
+        assert!(err.to_string().contains("status"));
+    }
+
+    #[test]
+    fn parse_frontmatter_rejects_invalid_status() {
+        let doc = "---\ndomain: moeb\nslug: my-spec\nstatus: pending\n---\n# Title\n";
+        let err = parse_frontmatter(doc).unwrap_err();
+        let msg = err.to_string();
+        assert!(msg.contains("pending"), "error must reproduce the invalid value; got: {}", msg);
+        assert!(msg.contains("active"), "error must list permitted values; got: {}", msg);
+    }
+
+    #[test]
+    fn parse_frontmatter_accepts_all_valid_statuses() {
+        for s in &["active", "superseded", "draft"] {
+            let doc = format!("---\ndomain: moeb\nslug: my-spec\nstatus: {}\n---\n# Title\n", s);
+            parse_frontmatter(&doc).unwrap_or_else(|e| panic!("status '{}' should be valid: {}", s, e));
+        }
+    }
+
+    #[test]
+    fn parse_frontmatter_extracts_supersedes_entries() {
+        let doc = "---\ndomain: moeb\nslug: my-spec\nstatus: active\nsupersedes:\n  - path: specifications/moeb/moeb.old.md\n    decision: Decision 1 — Old approach\n  - path: specifications/moeb/moeb.other.md\n    decision: Decision 2 — Another one\n---\n# Title\n";
+        let (_, _, _, supersedes, _) = parse_frontmatter(doc).unwrap();
+        assert_eq!(supersedes.len(), 2);
+        assert_eq!(supersedes[0].0, "specifications/moeb/moeb.old.md");
+        assert_eq!(supersedes[0].1, "Decision 1 — Old approach");
+        assert_eq!(supersedes[1].0, "specifications/moeb/moeb.other.md");
+        assert_eq!(supersedes[1].1, "Decision 2 — Another one");
+    }
+
+    #[test]
+    fn parse_frontmatter_absent_supersedes_gives_empty_vec() {
+        let (_, _, _, supersedes, _) = parse_frontmatter(&valid_doc("moeb", "my-spec")).unwrap();
+        assert!(supersedes.is_empty(), "no supersedes field should yield an empty vec");
+    }
+
+    #[test]
     fn validate_sections_passes_for_valid_body() {
-        validate_sections(&valid_body()).unwrap();
+        validate_sections(&valid_body(), REQUIRED_SECTIONS).unwrap();
     }
 
     #[test]
     fn validate_sections_rejects_missing_rubric() {
         let body = valid_body().replace("## Rubric\n", "");
-        let err = validate_sections(&body).unwrap_err();
+        let err = validate_sections(&body, REQUIRED_SECTIONS).unwrap_err();
         assert!(err.to_string().contains("Rubric"));
     }
 
     #[test]
     fn validate_sections_rejects_missing_mermaid() {
         let body = valid_body().replace("```mermaid\n", "");
-        let err = validate_sections(&body).unwrap_err();
+        let err = validate_sections(&body, REQUIRED_SECTIONS).unwrap_err();
         assert!(
             err.to_string().contains("mermaid"),
             "got: {}",
@@ -424,12 +589,50 @@ mod tests {
                 "## Steps\n### Step 1\nDo something.\n\n## Decisions\n### Decision 1\nChose X.",
                 "## Decisions\n### Decision 1\nChose X.\n\n## Steps\n### Step 1\nDo something.",
             );
-        let err = validate_sections(&body).unwrap_err();
+        let err = validate_sections(&body, REQUIRED_SECTIONS).unwrap_err();
         assert!(
             err.to_string().contains("Steps") || err.to_string().contains("Decisions"),
             "got: {}",
             err
         );
+    }
+
+    #[test]
+    fn validate_sections_uses_custom_required_list() {
+        // Schema-driven: removing "## Rubric" from the required list should let a spec
+        // without that section pass.
+        let custom: Vec<String> = REQUIRED_SECTIONS
+            .iter()
+            .filter(|&&s| s != "## Rubric")
+            .map(|s| s.to_string())
+            .collect();
+        let body = valid_body().replace("## Rubric\n### Structured\nCriteria here.", "");
+        validate_sections(&body, &custom).unwrap();
+    }
+
+    #[test]
+    fn load_validation_schema_returns_none_for_malformed_json() {
+        let tmp = tempfile::tempdir().unwrap();
+        std::fs::write(tmp.path().join("spec-schema-validation.json"), "not json").unwrap();
+        let result = load_validation_schema(tmp.path());
+        assert!(result.is_none(), "malformed JSON must return None");
+    }
+
+    #[test]
+    fn load_validation_schema_returns_none_when_absent() {
+        let tmp = tempfile::tempdir().unwrap();
+        let result = load_validation_schema(tmp.path());
+        assert!(result.is_none(), "absent file must return None");
+    }
+
+    #[test]
+    fn load_validation_schema_parses_valid_json() {
+        let tmp = tempfile::tempdir().unwrap();
+        let json = r###"{"frontmatter":{"required":["domain","slug","status"],"optional":["supersedes"]},"body":{"required_sections":["# ","## Raw Requirement"]}}"###;
+        std::fs::write(tmp.path().join("spec-schema-validation.json"), json).unwrap();
+        let schema = load_validation_schema(tmp.path()).expect("must parse valid JSON");
+        assert_eq!(schema.frontmatter.required, ["domain", "slug", "status"]);
+        assert_eq!(schema.body.required_sections, ["# ", "## Raw Requirement"]);
     }
 }
 
@@ -477,7 +680,7 @@ mod integration_tests {
     }
 
     fn spec_doc(domain: &str, slug: &str) -> String {
-        format!("---\ndomain: {}\nslug: {}\n---\n{}", domain, slug, spec_body())
+        format!("---\ndomain: {}\nslug: {}\nstatus: active\n---\n{}", domain, slug, spec_body())
     }
 
     struct MockAi {

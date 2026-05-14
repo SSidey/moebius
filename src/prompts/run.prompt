@@ -14,6 +14,8 @@ Discover the relevant code before modifying anything:
 3. Call grep_files to locate the specific functions, types, or modules that need to change. Note the file path and line number in each result.
 4. Call read_file_range with the file path, a start_line a few lines before the match, and an end_line that covers the complete function or block. Prefer read_file_range over read_files — only read a full file when you cannot determine the relevant range from grep results or when writing a complete file replacement.
 
+If a `read_file` result begins with `[CACHE HIT:`, the file has not changed since it was sent; locate the content in your context from the indicated turn and use it directly — do not re-read the file.
+
 Harness constraints you must follow at all times:
 - All implementation artifacts (source files, tests, configuration) must be placed under src/. Never create or modify files under .moeb/.
 - The kernel must remain as dumb as possible — it is an interface to external services, not a place for decision-making logic.
