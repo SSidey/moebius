@@ -1,5 +1,7 @@
 # Declarative Harness
 
+> This harness governs the **moeb** project. For a project overview, installation, and usage see [`.github/README.md`](../.github/README.md).
+
 A declarative specification harness for maintaining a consistent, coherent and structured record of requirements and design decisions that govern changes to the solution layer.
 
 ---
@@ -115,6 +117,7 @@ Organised by domain. Add a new `###` subsection for each domain as it is introdu
 | Adapter Factory Port | Introduces `AdapterFactoryPort` in `ports/` and `DefaultAdapterFactory` in `adapters/`, removing all direct imports of concrete adapter types from the domain layer and correcting the hexagonal architecture violation | [specifications/moeb/moeb.adapter-factory-port.md](specifications/moeb/moeb.adapter-factory-port.md) | active |
 | Tool Executor Extraction | Extracts all seven file tools from `agent.rs` into a `tools/` module with a `ToolHandler` trait and `ToolRegistry`, moves `ToolExecutorPort` to `ports/`, and migrates tests to their respective tool files | [specifications/moeb/moeb.tool-executor-extraction.md](specifications/moeb/moeb.tool-executor-extraction.md) | active |
 | Content Deduplication for File Reads | Adds a per-run in-memory sha256 cache to `RealToolExecutor` that returns a backreference message instead of re-sending unchanged `read_file` content, and adds `cache_hit: bool` to `ToolCallEvent` | [specifications/moeb/moeb.content-deduplication.md](specifications/moeb/moeb.content-deduplication.md) | active |
+| Prompt Caching | Adds `PROMPT_CACHE` kernel config (default true), applies Anthropic ephemeral cache_control to the system prompt, reads cached token counts from both adapters, and emits `CacheUsageEvent` to the trace | [specifications/moeb/moeb.prompt-caching.md](specifications/moeb/moeb.prompt-caching.md) | active |
 
 ### vcs
 

@@ -13,9 +13,14 @@ pub mod domain;
 pub mod ports;
 pub mod tools;
 pub mod trace;
+pub mod version_tests;
 
 #[derive(Parser)]
-#[command(name = "moeb", about = "Declarative harness kernel")]
+#[command(
+    name = "moeb",
+    about = "Declarative harness kernel",
+    version = env!("CARGO_PKG_VERSION")
+)]
 struct Cli {
     #[command(subcommand)]
     command: Commands,

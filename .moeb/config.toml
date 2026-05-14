@@ -1,4 +1,4 @@
-active_adapter = "openai"
+active_adapter = "anthropic"
 
 [adapters.openai]
 model = "gpt-5.4-mini"

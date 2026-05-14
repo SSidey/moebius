@@ -1,0 +1,74 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v[0-9]+.[0-9]+.[0-9]+*'
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-release:
+    name: Build and publish moeb binary
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust build artefacts
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            src/moeb/target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('src/moeb/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-
+
+      - name: Extract semver tag
+        id: version
+        run: echo "VERSION=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Verify Cargo.toml version matches tag
+        run: |
+          CARGO_VERSION=$(grep '^version' src/moeb/Cargo.toml | head -1 | sed 's/.*= *"\(.*\)"/\1/')
+          TAG_VERSION="${{ steps.version.outputs.VERSION }}"
+          echo "Cargo.toml version : $CARGO_VERSION"
+          echo "Git tag version    : $TAG_VERSION"
+          if [ "$CARGO_VERSION" != "$TAG_VERSION" ]; then
+            echo "ERROR: Cargo.toml version ($CARGO_VERSION) does not match tag ($TAG_VERSION)."
+            exit 1
+          fi
+
+      - name: Build moeb in release mode
+        working-directory: src/moeb
+        run: cargo build --release
+
+      - name: Verify binary version output
+        run: |
+          BINARY_VERSION=$(./src/moeb/target/release/moeb --version | awk '{print $2}')
+          TAG_VERSION="${{ steps.version.outputs.VERSION }}"
+          echo "Binary self-reports: $BINARY_VERSION"
+          echo "Expected           : $TAG_VERSION"
+          if [ "$BINARY_VERSION" != "$TAG_VERSION" ]; then
+            echo "ERROR: Binary reports version $BINARY_VERSION but tag is $TAG_VERSION."
+            exit 1
+          fi
+
+      - name: Rename artifact with version
+        run: |
+          cp src/moeb/target/release/moeb moeb-${{ steps.version.outputs.VERSION }}-linux-x86_64
+
+      - name: Upload release asset
+        uses: softprops/action-gh-release@v2
+        with:
+          files: moeb-${{ steps.version.outputs.VERSION }}-linux-x86_64
+          tag_name: ${{ github.ref_name }}
+          name: moeb ${{ github.ref_name }}
+          generate_release_notes: true
