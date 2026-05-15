@@ -16,6 +16,10 @@ use crate::trace::{
 const PROMPT_FILE: &str = "spec.prompt";
 const README_LINK_PROMPT_FILE: &str = "readme-link.prompt";
 const INPUT_TOKEN: &str = "{{input}}";
+const README_TOKEN: &str = "{{readme_content}}";
+const SPEC_SCHEMA_TOKEN: &str = "{{spec_schema_content}}";
+const RUBRICS_TOKEN: &str = "{{rubrics_content}}";
+const RUBRICS_PATH: &str = "rubrics/rubrics.index.md";
 
 const REQUIRED_SECTIONS: &[&str] = &[
     "# ",
@@ -124,7 +128,32 @@ impl SpecService {
         let template = std::str::from_utf8(asset.data.as_ref())
             .context("spec.prompt is not valid UTF-8")?;
 
-        let prompt = template.replace(INPUT_TOKEN, input);
+        let readme_content = fs::read_to_string(working_dir.join("README.md"))
+            .with_context(|| {
+                format!(
+                    "Cannot read {}/README.md. Run `moeb init` first.",
+                    working_dir.display()
+                )
+            })?;
+
+        let spec_schema_content = fs::read_to_string(working_dir.join("spec-schema.yaml"))
+            .with_context(|| {
+                format!(
+                    "Cannot read {}/spec-schema.yaml. Run `moeb init` first.",
+                    working_dir.display()
+                )
+            })?;
+
+        let rubrics_content =
+            fs::read_to_string(working_dir.join(RUBRICS_PATH)).unwrap_or_else(|_| {
+                "(rubrics catalogue not found — rubrics/rubrics.index.md is absent)".to_string()
+            });
+
+        let prompt = template
+            .replace(INPUT_TOKEN, input)
+            .replace(README_TOKEN, &readme_content)
+            .replace(SPEC_SCHEMA_TOKEN, &spec_schema_content)
+            .replace(RUBRICS_TOKEN, &rubrics_content);
 
         eprintln!("[moeb] generating specification (up to {} attempt(s))...", retry_limit);
 

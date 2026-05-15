@@ -1,8 +1,8 @@
-active_adapter = "anthropic"
+active_adapter = "openai"
+
+[adapters.openai]
+model = "gpt-5.4-mini"
 
 [adapters.anthropic]
 model = "claude-sonnet-4-6"
 retries = 3
-
-[adapters.openai]
-model = "gpt-5.4-mini"

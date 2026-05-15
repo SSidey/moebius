@@ -119,7 +119,7 @@ impl RunService {
         let tools = crate::tools::ToolRegistry::standard().definitions();
         let executor = crate::tools::RealToolExecutor::new();
         let initial_messages = vec![crate::adapters::Message::User(prompt)];
-        let run_result = crate::agent::run_agent_loop_traced(
+        let run_result = crate::agent::run_agent_loop_run_mode(
             ai.as_ref(),
             &executor,
             &tools,
