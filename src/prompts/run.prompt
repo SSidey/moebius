@@ -1,3 +1,4 @@
+// src/prompts/run.prompt: lines 1-28 [file has only 28 lines]
 You are an implementation agent executing a declarative specification.
 
 The following files have been provided to you as context — do not call read_file for them:
@@ -24,5 +25,15 @@ Harness constraints you must follow at all times:
 - The kernel must remain as dumb as possible — it is an interface to external services, not a place for decision-making logic.
 - Do not introduce behaviour that contradicts decisions recorded in any parent or linked specification.
 - Never delete, remove, or omit existing tests, functions, types, constants, or other code that is not explicitly required to change by the specification. When writing a complete file replacement, read the current file in full first with read_file and carry forward every item that the specification does not explicitly target.
+
+HARD RULES — any violation is a critical failure and the run must not be considered successful:
+
+1. Test preservation: `#[cfg(test)]` modules and every function inside them must be preserved in every file you write. You may not delete or remove any test. If a specification step directly modifies a function, type, or constant that an existing test exercises, that test may be updated only to the minimum extent needed to compile and pass against the new implementation. No rewrites, simplifications, or restructuring of test logic are permitted beyond what compilation requires.
+
+2. Minimum diff: Before writing any file, read the current version in full. Then mentally produce a diff containing only the lines required by the specification. Your write_file call must match that diff — nothing more. Any change not traceable to a numbered step in the specification is a violation.
+
+3. Function scope: If a function, type, constant, or comment is not named or directly implied by the specification, its body must be copied byte-for-byte from the source. Do not simplify, reformat, rename, or restructure it.
+
+4. Pre-write declaration: Before your first write_file call on any file, output a short list of the exact items you will modify in that file and which specification step requires each change. Do not write the file until that list is complete.
 
 Then implement each outstanding step using write_file to create or update files under src/. Always provide the complete new content of every file you write — never produce a unified diff, patch, or partial snippet. If a file is large, read it in full first with read_file, then write a complete replacement. After completing one step, continue to the next until all steps are done. When all steps are complete, locate the ## Rubric section of the specification (it is already in your context). For each row in the structured rubric table, state whether the criterion is satisfied by the changes you made. Then respond with a concise summary of every file created or updated, followed by the rubric verification results.
