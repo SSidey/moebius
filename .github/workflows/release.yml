@@ -10,8 +10,22 @@ permissions:
 
 jobs:
   build-and-release:
-    name: Build and publish moeb binary
-    runs-on: ubuntu-latest
+    name: Build and publish moeb binary (${{ matrix.artifact_suffix }})
+    runs-on: ${{ matrix.os }}
+
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            artifact_suffix: linux-x86_64
+            binary_name: moeb
+            asset_ext: ""
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            artifact_suffix: windows-x86_64
+            binary_name: moeb.exe
+            asset_ext: ".exe"
 
     steps:
       - name: Checkout repository
@@ -19,6 +33,8 @@ jobs:
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
 
       - name: Cache Rust build artefacts
         uses: actions/cache@v4
@@ -33,9 +49,11 @@ jobs:
 
       - name: Extract semver tag
         id: version
+        shell: bash
         run: echo "VERSION=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
 
       - name: Verify Cargo.toml version matches tag
+        shell: bash
         run: |
           CARGO_VERSION=$(grep '^version' src/moeb/Cargo.toml | head -1 | sed 's/.*= *"\(.*\)"/\1/')
           TAG_VERSION="${{ steps.version.outputs.VERSION }}"
@@ -48,11 +66,13 @@ jobs:
 
       - name: Build moeb in release mode
         working-directory: src/moeb
-        run: cargo build --release
+        run: cargo build --release --target ${{ matrix.target }}
 
-      - name: Verify binary version output
+      - name: Verify binary version output (Linux)
+        if: matrix.os == 'ubuntu-latest'
+        shell: bash
         run: |
-          BINARY_VERSION=$(./src/moeb/target/release/moeb --version | awk '{print $2}')
+          BINARY_VERSION=$(./src/moeb/target/${{ matrix.target }}/release/${{ matrix.binary_name }} --version | awk '{print $2}')
           TAG_VERSION="${{ steps.version.outputs.VERSION }}"
           echo "Binary self-reports: $BINARY_VERSION"
           echo "Expected           : $TAG_VERSION"
@@ -61,14 +81,39 @@ jobs:
             exit 1
           fi
 
-      - name: Rename artifact with version
+      - name: Verify binary version output (Windows)
+        if: matrix.os == 'windows-latest'
+        shell: pwsh
         run: |
-          cp src/moeb/target/release/moeb moeb-${{ steps.version.outputs.VERSION }}-linux-x86_64
+          $binaryPath = "src\moeb\target\${{ matrix.target }}\release\${{ matrix.binary_name }}"
+          $BINARY_VERSION = (& $binaryPath --version).Split(' ')[1]
+          $TAG_VERSION = "${{ steps.version.outputs.VERSION }}"
+          Write-Host "Binary self-reports: $BINARY_VERSION"
+          Write-Host "Expected           : $TAG_VERSION"
+          if ($BINARY_VERSION -ne $TAG_VERSION) {
+            Write-Error "ERROR: Binary reports version $BINARY_VERSION but tag is $TAG_VERSION."
+            exit 1
+          }
+
+      - name: Stage release asset (Linux)
+        if: matrix.os == 'ubuntu-latest'
+        shell: bash
+        run: |
+          cp "src/moeb/target/${{ matrix.target }}/release/${{ matrix.binary_name }}" \
+             "moeb-${{ steps.version.outputs.VERSION }}-${{ matrix.artifact_suffix }}"
+
+      - name: Stage release asset (Windows)
+        if: matrix.os == 'windows-latest'
+        shell: pwsh
+        run: |
+          $src = "src\moeb\target\${{ matrix.target }}\release\${{ matrix.binary_name }}"
+          $dst = "moeb-${{ steps.version.outputs.VERSION }}-${{ matrix.artifact_suffix }}.exe"
+          Copy-Item $src $dst
 
       - name: Upload release asset
         uses: softprops/action-gh-release@v2
         with:
-          files: moeb-${{ steps.version.outputs.VERSION }}-linux-x86_64
+          files: moeb-${{ steps.version.outputs.VERSION }}-${{ matrix.artifact_suffix }}${{ matrix.asset_ext }}
           tag_name: ${{ github.ref_name }}
           name: moeb ${{ github.ref_name }}
           generate_release_notes: true

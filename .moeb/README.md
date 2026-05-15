@@ -118,6 +118,7 @@ Organised by domain. Add a new `###` subsection for each domain as it is introdu
 | Tool Executor Extraction | Extracts all seven file tools from `agent.rs` into a `tools/` module with a `ToolHandler` trait and `ToolRegistry`, moves `ToolExecutorPort` to `ports/`, and migrates tests to their respective tool files | [specifications/moeb/moeb.tool-executor-extraction.md](specifications/moeb/moeb.tool-executor-extraction.md) | active |
 | Content Deduplication for File Reads | Adds a per-run in-memory sha256 cache to `RealToolExecutor` that returns a backreference message instead of re-sending unchanged `read_file` content, and adds `cache_hit: bool` to `ToolCallEvent` | [specifications/moeb/moeb.content-deduplication.md](specifications/moeb/moeb.content-deduplication.md) | active |
 | Prompt Caching | Adds `PROMPT_CACHE` kernel config (default true), applies Anthropic ephemeral cache_control to the system prompt, reads cached token counts from both adapters, and emits `CacheUsageEvent` to the trace | [specifications/moeb/moeb.prompt-caching.md](specifications/moeb/moeb.prompt-caching.md) | active |
+| Windows Release Target | Extends the GitHub Actions release workflow to build and publish a Windows (`x86_64-pc-windows-msvc`) binary alongside the existing Linux artifact using a build matrix, with platform-suffixed asset names | [specifications/moeb/moeb.windows-release-target.md](specifications/moeb/moeb.windows-release-target.md) | active |
 
 ### vcs
 
