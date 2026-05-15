@@ -773,6 +773,11 @@ mod integration_tests {
         let ai = MockAi::new(vec![
             AgentResponse::Text(spec_doc("auth", "token-rotation")),
             AgentResponse::ToolCalls(vec![ToolCall {
+                id: "r1".to_string(),
+                name: "read_file".to_string(),
+                arguments: serde_json::json!({"path": "README.md"}).to_string(),
+            }]),
+            AgentResponse::ToolCalls(vec![ToolCall {
                 id: "c1".to_string(),
                 name: "write_file".to_string(),
                 arguments: write_args,

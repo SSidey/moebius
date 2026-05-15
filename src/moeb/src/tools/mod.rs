@@ -110,6 +110,7 @@ type ContentCache = Mutex<HashMap<String, (String, u32)>>;
 pub struct RealToolExecutor {
     registry: ToolRegistry,
     cache: ContentCache,
+    read_paths: Mutex<std::collections::HashSet<String>>,
 }
 
 impl RealToolExecutor {
@@ -117,6 +118,7 @@ impl RealToolExecutor {
         Self {
             registry: ToolRegistry::standard(),
             cache: Mutex::new(HashMap::new()),
+            read_paths: Mutex::new(std::collections::HashSet::new()),
         }
     }
 }
@@ -130,10 +132,35 @@ impl ToolExecutorPort for RealToolExecutor {
         working_dir: &Path,
         current_turn: u32,
     ) -> Result<(String, bool)> {
+        if name == "write_file" {
+            if let Some(path) = args["path"].as_str() {
+                let normalized = path.replace('\\', "/");
+                if working_dir.join(path).exists() {
+                    let read_paths = self.read_paths.lock().unwrap();
+                    if !read_paths.contains(&normalized) {
+                        return Ok((
+                            format!(
+                                "write_file rejected: '{}' exists on disk but has not been read \
+                                 during this run. Call read_file on '{}' to obtain the current \
+                                 content, then write a complete replacement that carries forward \
+                                 all existing code not targeted by the specification.",
+                                path, path
+                            ),
+                            false,
+                        ));
+                    }
+                }
+            }
+        }
+
         let tool_result = self.registry.execute(name, args, working_dir);
 
         if name == "read_file" {
             if let Ok(ref content) = tool_result {
+                {
+                    let path_key = args["path"].as_str().unwrap_or("").to_string();
+                    self.read_paths.lock().unwrap().insert(path_key.replace('\\', "/"));
+                }
                 let path_key = args["path"].as_str().unwrap_or("").to_string();
                 let digest = hex::encode(sha2::Sha256::digest(content.as_bytes()));
 
@@ -150,6 +177,17 @@ impl ToolExecutorPort for RealToolExecutor {
                     }
                 }
                 cache.insert(path_key, (digest, current_turn));
+            }
+        }
+
+        if name == "read_files" {
+            if let Some(paths) = args["paths"].as_array() {
+                let mut rp = self.read_paths.lock().unwrap();
+                for pv in paths {
+                    if let Some(p) = pv.as_str() {
+                        rp.insert(p.replace('\\', "/"));
+                    }
+                }
             }
         }
 
@@ -238,5 +276,61 @@ mod tests {
         let args = serde_json::json!({"path": "src", "extension": "txt"});
         let (_, hit) = executor.execute("search_files", "c1", &args, working_dir, 1).unwrap();
         assert!(!hit, "search_files must never return cache_hit true");
+    }
+
+    #[test]
+    fn write_file_rejected_for_existing_file_not_yet_read() {
+        let (_dir, _guard) = in_temp_dir();
+        std::fs::write("existing.rs", "fn old() {}").unwrap();
+
+        let executor = RealToolExecutor::new();
+        let args = serde_json::json!({"path": "existing.rs", "content": "fn new() {}"});
+        let (msg, _) = executor.execute("write_file", "c1", &args, Path::new("."), 1).unwrap();
+        assert!(msg.contains("rejected"), "must reject unread existing file; got: {}", msg);
+        assert!(msg.contains("existing.rs"), "rejection must name the file; got: {}", msg);
+        assert!(msg.contains("read_file"), "rejection must instruct to call read_file; got: {}", msg);
+        let on_disk = std::fs::read_to_string("existing.rs").unwrap();
+        assert_eq!(on_disk, "fn old() {}", "file must not be modified on rejection");
+    }
+
+    #[test]
+    fn write_file_allowed_after_read_file() {
+        let (_dir, _guard) = in_temp_dir();
+        std::fs::write("target.rs", "fn original() {}").unwrap();
+
+        let executor = RealToolExecutor::new();
+        let read_args = serde_json::json!({"path": "target.rs"});
+        executor.execute("read_file", "c1", &read_args, Path::new("."), 1).unwrap();
+
+        let write_args = serde_json::json!({"path": "target.rs", "content": "fn updated() {}"});
+        let (msg, _) = executor.execute("write_file", "c2", &write_args, Path::new("."), 2).unwrap();
+        assert!(!msg.contains("rejected"), "write after read must succeed; got: {}", msg);
+        assert_eq!(std::fs::read_to_string("target.rs").unwrap(), "fn updated() {}");
+    }
+
+    #[test]
+    fn write_file_allowed_for_new_file_without_prior_read() {
+        let (_dir, _guard) = in_temp_dir();
+
+        let executor = RealToolExecutor::new();
+        let args = serde_json::json!({"path": "brand_new.rs", "content": "fn fresh() {}"});
+        let (msg, _) = executor.execute("write_file", "c1", &args, Path::new("."), 1).unwrap();
+        assert!(!msg.contains("rejected"), "new file must not require prior read; got: {}", msg);
+        assert!(Path::new("brand_new.rs").exists());
+    }
+
+    #[test]
+    fn write_file_allowed_after_read_files_batch() {
+        let (_dir, _guard) = in_temp_dir();
+        std::fs::write("a.rs", "fn a() {}").unwrap();
+        std::fs::write("b.rs", "fn b() {}").unwrap();
+
+        let executor = RealToolExecutor::new();
+        let read_args = serde_json::json!({"paths": ["a.rs", "b.rs"]});
+        executor.execute("read_files", "c1", &read_args, Path::new("."), 1).unwrap();
+
+        let write_args = serde_json::json!({"path": "b.rs", "content": "fn b_updated() {}"});
+        let (msg, _) = executor.execute("write_file", "c2", &write_args, Path::new("."), 2).unwrap();
+        assert!(!msg.contains("rejected"), "write after read_files must succeed; got: {}", msg);
     }
 }
