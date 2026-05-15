@@ -26,8 +26,10 @@ pub fn run() -> Result<()> {
     }
     if config.effective_prompt_cache() {
         println!("Prompt cache: enabled   (Anthropic: explicit; OpenAI: automatic)");
+        println!("  To disable: moeb configure PROMPT_CACHE false");
     } else {
         println!("Prompt cache: disabled  (Anthropic: no cache_control sent; OpenAI: unaffected)");
+        println!("  To enable:  moeb configure PROMPT_CACHE true");
     }
     Ok(())
 }
