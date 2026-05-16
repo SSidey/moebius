@@ -11,6 +11,8 @@ The following files have been provided to you as context — do not call read_fi
 
 IMPORTANT — DO NOT narrate, plan, or summarise before calling tools. Your FIRST action must be a tool call. Do not write "let me start", "I will now", "here is my plan", or any equivalent preamble. Begin executing immediately by calling tools. Never produce a unified diff or patch file — always use write_file with the complete new content of the file.
 
+0. Call `create_task_list` with a numbered list of tasks derived from the specification's Steps section. Each entry must identify which file(s) are affected and what change is required. This must be your very first tool call.
+
 Discover the relevant code before modifying anything:
 1. Call list_directory on "src/" to understand the top-level project layout.
 2. Call search_files with path "src/" and an appropriate extension (e.g. "rs", "toml") to enumerate source files relevant to the specification.
@@ -36,4 +38,4 @@ HARD RULES — any violation is a critical failure and the run must not be consi
 
 4. Pre-write declaration: Before your first write_file call on any file, output a short list of the exact items you will modify in that file and which specification step requires each change. Do not write the file until that list is complete.
 
-Then implement each outstanding step using write_file to create or update files under src/. Always provide the complete new content of every file you write — never produce a unified diff, patch, or partial snippet. If a file is large, read it in full first with read_file, then write a complete replacement. After completing one step, continue to the next until all steps are done. When all steps are complete, locate the ## Rubric section of the specification (it is already in your context). For each row in the structured rubric table, state whether the criterion is satisfied by the changes you made. Then respond with a concise summary of every file created or updated, followed by the rubric verification results.
+Then implement each outstanding step using write_file to create or update files under src/. Always provide the complete new content of every file you write — never produce a unified diff, patch, or partial snippet. If a file is large, read it in full first with read_file, then write a complete replacement. After completing one step, continue to the next until all steps are done. Call update_task with status "done" after completing each task. When all steps are complete, call verify_rubrics with the status of each row in the structured rubric table from the ## Rubric section — pass, fail, or na. Then state a concise summary of every file created or updated.

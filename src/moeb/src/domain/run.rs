@@ -116,8 +116,9 @@ impl RunService {
         let ai = self.factory.build(Arc::clone(&trace))?;
 
         let working_dir = Path::new(".");
-        let tools = crate::tools::ToolRegistry::standard().definitions();
-        let executor = crate::tools::RealToolExecutor::new();
+        let state = crate::run_state::new_shared_run_state();
+        let tools = crate::tools::ToolRegistry::standard(std::sync::Arc::clone(&state)).definitions();
+        let executor = crate::tools::RealToolExecutor::new(std::sync::Arc::clone(&state));
         let initial_messages = vec![crate::adapters::Message::User(prompt)];
         let compaction_config = crate::agent::CompactionConfig {
             enabled: cfg.effective_compaction_enabled(),
@@ -134,6 +135,7 @@ impl RunService {
             &trace,
             1,
             compaction_config,
+            state,
         );
 
         let (outcome, err_msg) = match &run_result {

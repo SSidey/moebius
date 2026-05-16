@@ -1,9 +1,12 @@
+pub mod create_task_list;
 pub mod grep_files;
 pub mod list_directory;
 pub mod read_file;
 pub mod read_file_range;
 pub mod read_files;
 pub mod search_files;
+pub mod update_task;
+pub mod verify_rubrics;
 pub mod write_file;
 
 use std::collections::HashMap;
@@ -14,6 +17,7 @@ use sha2::Digest;
 
 use crate::adapters::ToolDef;
 use crate::ports::ToolExecutorPort;
+use crate::run_state::SharedRunState;
 
 pub const MAX_READ_BYTES: usize = 102_400;
 pub const MAX_RANGE_LINES: usize = 300;
@@ -55,8 +59,8 @@ impl ToolRegistry {
         Self { handlers: HashMap::new() }
     }
 
-    /// Register the seven standard file tools.
-    pub fn standard() -> Self {
+    /// Register the ten standard tools (seven file tools + three task-list tools).
+    pub fn standard(state: SharedRunState) -> Self {
         let mut r = Self::new();
         r.register(Box::new(read_file::ReadFileTool));
         r.register(Box::new(write_file::WriteFileTool));
@@ -65,6 +69,9 @@ impl ToolRegistry {
         r.register(Box::new(grep_files::GrepFilesTool));
         r.register(Box::new(read_files::ReadFilesTool));
         r.register(Box::new(read_file_range::ReadFileRangeTool));
+        r.register(Box::new(create_task_list::CreateTaskListTool { state: std::sync::Arc::clone(&state) }));
+        r.register(Box::new(update_task::UpdateTaskTool { state: std::sync::Arc::clone(&state) }));
+        r.register(Box::new(verify_rubrics::VerifyRubricsTool { state: std::sync::Arc::clone(&state) }));
         r
     }
 
@@ -88,11 +95,12 @@ impl ToolRegistry {
         }
     }
 
-    /// Returns definitions in the same stable order as the original `file_tools()`.
+    /// Returns definitions in stable order.
     pub fn definitions(&self) -> Vec<ToolDef> {
         let order = [
             "read_file", "write_file", "list_directory",
             "search_files", "grep_files", "read_files", "read_file_range",
+            "create_task_list", "update_task", "verify_rubrics",
         ];
         order.iter()
             .filter_map(|name| self.handlers.get(name).map(|h| h.definition()))
@@ -108,17 +116,19 @@ impl ToolRegistry {
 type ContentCache = Mutex<HashMap<String, (String, u32)>>;
 
 pub struct RealToolExecutor {
+    pub state: SharedRunState,
     registry: ToolRegistry,
     cache: ContentCache,
     read_paths: Mutex<std::collections::HashSet<String>>,
 }
 
 impl RealToolExecutor {
-    pub fn new() -> Self {
+    pub fn new(state: SharedRunState) -> Self {
         Self {
-            registry: ToolRegistry::standard(),
+            registry: ToolRegistry::standard(std::sync::Arc::clone(&state)),
             cache: Mutex::new(HashMap::new()),
             read_paths: Mutex::new(std::collections::HashSet::new()),
+            state,
         }
     }
 }
@@ -133,6 +143,12 @@ impl ToolExecutorPort for RealToolExecutor {
         current_turn: u32,
     ) -> Result<(String, bool)> {
         if name == "write_file" {
+            if !self.state.lock().unwrap().task_list_created() {
+                eprintln!(
+                    "moeb: warning: write_file called without a prior create_task_list \
+                     — consider calling create_task_list first to record your plan."
+                );
+            }
             if let Some(path) = args["path"].as_str() {
                 let normalized = path.replace('\\', "/");
                 if working_dir.join(path).exists() {

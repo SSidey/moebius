@@ -291,7 +291,8 @@ pub fn run_replay_from_envelope(envelope: &TraceEnvelope, attempt_override: Opti
         file_content_mode: FileContentMode::Embed,
     }));
 
-    let tools: Vec<ToolDef> = crate::tools::ToolRegistry::standard().definitions();
+    let replay_state = crate::run_state::new_shared_run_state();
+    let tools: Vec<ToolDef> = crate::tools::ToolRegistry::standard(std::sync::Arc::clone(&replay_state)).definitions();
     let working_dir = std::path::Path::new(".");
 
     let result = run_agent_loop_traced(
@@ -304,6 +305,7 @@ pub fn run_replay_from_envelope(envelope: &TraceEnvelope, attempt_override: Opti
         &noop_trace,
         target_attempt,
         crate::agent::CompactionConfig::default(),
+        replay_state,
     )?;
 
     if !result.is_empty() {

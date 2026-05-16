@@ -185,8 +185,9 @@ impl SpecService {
                 total_attempts = attempt;
                 trace.current_attempt.store(attempt, std::sync::atomic::Ordering::SeqCst);
 
-                let tools = crate::tools::ToolRegistry::standard().definitions();
-                let executor = crate::tools::RealToolExecutor::new();
+                let state = crate::run_state::new_shared_run_state();
+                let tools = crate::tools::ToolRegistry::standard(std::sync::Arc::clone(&state)).definitions();
+                let executor = crate::tools::RealToolExecutor::new(std::sync::Arc::clone(&state));
                 let initial_messages = vec![crate::adapters::Message::User(prompt.clone())];
                 let compaction_config = crate::agent::CompactionConfig {
                     enabled: cfg.effective_compaction_enabled(),
@@ -203,6 +204,7 @@ impl SpecService {
                     &trace,
                     attempt,
                     compaction_config,
+                    state,
                 ) {
                     Ok(r) => r,
                     Err(e) => return Err(e),
@@ -309,8 +311,9 @@ impl SpecService {
             file_content_mode,
         }));
         let ai = self.factory.build(Arc::clone(&noop_trace))?;
-        let tools = crate::tools::ToolRegistry::standard().definitions();
-        let executor = crate::tools::RealToolExecutor::new();
+        let link_state = crate::run_state::new_shared_run_state();
+        let tools = crate::tools::ToolRegistry::standard(std::sync::Arc::clone(&link_state)).definitions();
+        let executor = crate::tools::RealToolExecutor::new(std::sync::Arc::clone(&link_state));
         let initial_messages = vec![crate::adapters::Message::User(prompt)];
         let _ = crate::agent::run_agent_loop_traced(
             ai.as_ref(),
@@ -322,6 +325,7 @@ impl SpecService {
             &noop_trace,
             1,
             crate::agent::CompactionConfig::default(),
+            link_state,
         )?;
         println!("Updated: .moeb/README.md");
         Ok(())

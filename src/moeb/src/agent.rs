@@ -4,6 +4,7 @@ use std::sync::Arc;
 
 use crate::adapters::{AgentResponse, Message, ToolDef};
 use crate::ports::{AiPort, ToolExecutorPort};
+use crate::run_state::SharedRunState;
 use crate::trace::{
     apply_content_policy, AgentFinishReason, AgentFinishedEvent, CompactionEvent, FileContentMode,
     ToolCallEvent, TraceContext, TraceEvent, TurnEndEvent, TurnResponseType, TurnStartEvent,
@@ -31,7 +32,8 @@ pub fn run_agent_loop(
     initial_prompt: &str,
     working_dir: &Path,
 ) -> Result<String> {
-    let tools = crate::tools::ToolRegistry::standard().definitions();
+    let state = crate::run_state::new_shared_run_state();
+    let tools = crate::tools::ToolRegistry::standard(std::sync::Arc::clone(&state)).definitions();
     let messages: Vec<Message> = vec![Message::User(initial_prompt.to_string())];
     let noop_trace = Arc::new(crate::trace::TraceContext::new(crate::trace::TraceConfig {
         command: crate::trace::TraceCommand::Run,
@@ -41,8 +43,8 @@ pub fn run_agent_loop(
         retention: 0,
         file_content_mode: FileContentMode::Embed,
     }));
-    let executor = crate::tools::RealToolExecutor::new();
-    run_agent_loop_inner(adapter, &executor, &tools, working_dir, messages, MAX_TURNS, &noop_trace, 1, true, CompactionConfig::default())
+    let executor = crate::tools::RealToolExecutor::new(std::sync::Arc::clone(&state));
+    run_agent_loop_inner(adapter, &executor, &tools, working_dir, messages, MAX_TURNS, &noop_trace, 1, true, CompactionConfig::default(), state)
 }
 
 pub fn run_agent_loop_traced(
@@ -55,8 +57,9 @@ pub fn run_agent_loop_traced(
     trace: &TraceContext,
     attempt: u32,
     compaction_config: CompactionConfig,
+    state: SharedRunState,
 ) -> Result<String> {
-    run_agent_loop_inner(adapter, tool_exec, tools, working_dir, initial_messages, max_turns, trace, attempt, false, compaction_config)
+    run_agent_loop_inner(adapter, tool_exec, tools, working_dir, initial_messages, max_turns, trace, attempt, false, compaction_config, state)
 }
 
 /// Variant for `moeb run`: continues the loop on text turns until at least one `write_file`
@@ -71,8 +74,33 @@ pub fn run_agent_loop_run_mode(
     trace: &TraceContext,
     attempt: u32,
     compaction_config: CompactionConfig,
+    state: SharedRunState,
 ) -> Result<String> {
-    run_agent_loop_inner(adapter, tool_exec, tools, working_dir, initial_messages, max_turns, trace, attempt, true, compaction_config)
+    run_agent_loop_inner(adapter, tool_exec, tools, working_dir, initial_messages, max_turns, trace, attempt, true, compaction_config, state)
+}
+
+fn continue_nudge(state: &SharedRunState) -> String {
+    let locked = state.lock().unwrap();
+    if !locked.task_list_created() {
+        return "Continue. Call create_task_list with your numbered plan, then call \
+                write_file (or other tools) to implement the next step.".to_string();
+    }
+    let pending = locked.pending_tasks();
+    if pending.is_empty() {
+        "Continue. All tasks complete — call verify_rubrics with your rubric verdicts, \
+         then provide your completion summary.".to_string()
+    } else {
+        let list = pending
+            .iter()
+            .map(|t| format!("[{}] {}", t.id, t.description))
+            .collect::<Vec<_>>()
+            .join("; ");
+        format!(
+            "Continue. Remaining tasks: {}. Call write_file (or other tools) to \
+             implement the next step.",
+            list
+        )
+    }
 }
 
 fn run_agent_loop_inner(
@@ -86,6 +114,7 @@ fn run_agent_loop_inner(
     attempt: u32,
     require_write_before_completion: bool,
     compaction_config: CompactionConfig,
+    state: SharedRunState,
 ) -> Result<String> {
     let mut messages = initial_messages;
     let mut write_file_dispatched = false;
@@ -178,10 +207,7 @@ fn run_agent_loop_inner(
                         response_content: serde_json::Value::String(text.clone()),
                     }));
                     messages.push(Message::Assistant(text.clone()));
-                    messages.push(Message::User(
-                        "Continue. Call write_file (or other tools) to implement the next step now."
-                            .to_string(),
-                    ));
+                    messages.push(Message::User(continue_nudge(&state)));
                     // do NOT break or return — continue to the next iteration
                 } else {
                     eprintln!("[moeb] agent finished after {} turn(s)", turn_num);

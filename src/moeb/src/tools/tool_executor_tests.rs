@@ -3,6 +3,7 @@
     use std::sync::MutexGuard;
     use tempfile::TempDir;
     use crate::config::tests::CWD_LOCK;
+    use crate::run_state::new_shared_run_state;
 
     fn in_temp_dir() -> (TempDir, MutexGuard<'static, ()>) {
         let guard = CWD_LOCK.lock().unwrap_or_else(|e| e.into_inner());
@@ -28,11 +29,17 @@
     }
 
     #[test]
+    fn standard_registry_has_ten_tools() {
+        let state = new_shared_run_state();
+        assert_eq!(ToolRegistry::standard(state).definitions().len(), 10);
+    }
+
+    #[test]
     fn cache_hit_returns_backreference_for_unchanged_file() {
         let (_dir, _guard) = in_temp_dir();
         std::fs::write("cached.txt", "hello cache").unwrap();
 
-        let executor = RealToolExecutor::new();
+        let executor = RealToolExecutor::new(new_shared_run_state());
         let args = serde_json::json!({"path": "cached.txt"});
         let working_dir = std::path::Path::new(".");
 
@@ -51,7 +58,7 @@
         let (_dir, _guard) = in_temp_dir();
         std::fs::write("changing.txt", "version one").unwrap();
 
-        let executor = RealToolExecutor::new();
+        let executor = RealToolExecutor::new(new_shared_run_state());
         let args = serde_json::json!({"path": "changing.txt"});
         let working_dir = std::path::Path::new(".");
 
@@ -71,7 +78,7 @@
         std::fs::write("target.txt", "content").unwrap();
         std::fs::create_dir_all("src").unwrap();
 
-        let executor = RealToolExecutor::new();
+        let executor = RealToolExecutor::new(new_shared_run_state());
         let working_dir = std::path::Path::new(".");
 
         let args = serde_json::json!({"path": "src", "extension": "txt"});
@@ -84,7 +91,7 @@
         let (_dir, _guard) = in_temp_dir();
         std::fs::write("existing.rs", "fn old() {}").unwrap();
 
-        let executor = RealToolExecutor::new();
+        let executor = RealToolExecutor::new(new_shared_run_state());
         let args = serde_json::json!({"path": "existing.rs", "content": "fn new() {}"});
         let (msg, _) = executor.execute("write_file", "c1", &args, Path::new("."), 1).unwrap();
         assert!(msg.contains("rejected"), "must reject unread existing file; got: {}", msg);
@@ -99,7 +106,7 @@
         let (_dir, _guard) = in_temp_dir();
         std::fs::write("target.rs", "fn original() {}").unwrap();
 
-        let executor = RealToolExecutor::new();
+        let executor = RealToolExecutor::new(new_shared_run_state());
         let read_args = serde_json::json!({"path": "target.rs"});
         executor.execute("read_file", "c1", &read_args, Path::new("."), 1).unwrap();
 
@@ -113,7 +120,7 @@
     fn write_file_allowed_for_new_file_without_prior_read() {
         let (_dir, _guard) = in_temp_dir();
 
-        let executor = RealToolExecutor::new();
+        let executor = RealToolExecutor::new(new_shared_run_state());
         let args = serde_json::json!({"path": "brand_new.rs", "content": "fn fresh() {}"});
         let (msg, _) = executor.execute("write_file", "c1", &args, Path::new("."), 1).unwrap();
         assert!(!msg.contains("rejected"), "new file must not require prior read; got: {}", msg);
@@ -126,7 +133,7 @@
         std::fs::write("a.rs", "fn a() {}").unwrap();
         std::fs::write("b.rs", "fn b() {}").unwrap();
 
-        let executor = RealToolExecutor::new();
+        let executor = RealToolExecutor::new(new_shared_run_state());
         let read_args = serde_json::json!({"paths": ["a.rs", "b.rs"]});
         executor.execute("read_files", "c1", &read_args, Path::new("."), 1).unwrap();
 

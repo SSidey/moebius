@@ -3,6 +3,7 @@
     use std::sync::Mutex;
     use crate::adapters::{AgentResponse, Message, ToolCall, ToolDef};
     use crate::config::tests::CWD_LOCK;
+    use crate::run_state::new_shared_run_state;
     use tempfile::TempDir;
 
     fn in_temp_dir() -> (TempDir, std::sync::MutexGuard<'static, ()>) {
@@ -85,6 +86,7 @@
             &trace,
             1,
             CompactionConfig::default(),
+            new_shared_run_state(),
         )
     }
 
