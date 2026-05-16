@@ -4,7 +4,7 @@ use std::path::Path;
 use std::sync::Arc;
 
 use crate::agent::MAX_TURNS;
-use crate::assets::Prompts;
+use crate::assets::{Assets, Prompts};
 use crate::config::MoebConfig;
 use crate::ports::AdapterFactoryPort;
 #[cfg(test)]
@@ -136,13 +136,11 @@ impl SpecService {
                 )
             })?;
 
-        let spec_schema_content = fs::read_to_string(working_dir.join("spec-schema.yaml"))
-            .with_context(|| {
-                format!(
-                    "Cannot read {}/spec-schema.yaml. Run `moeb init` first.",
-                    working_dir.display()
-                )
-            })?;
+        let spec_schema_asset = Assets::get("spec-schema.yaml")
+            .context("Embedded asset 'spec-schema.yaml' not found in binary")?;
+        let spec_schema_content = std::str::from_utf8(spec_schema_asset.data.as_ref())
+            .context("spec-schema.yaml embedded asset is not valid UTF-8")?
+            .to_string();
 
         let rubrics_content =
             fs::read_to_string(working_dir.join(RUBRICS_PATH)).unwrap_or_else(|_| {
@@ -738,7 +736,6 @@ mod integration_tests {
         let dir = tmp.path();
         fs::create_dir_all(dir.join("specifications")).unwrap();
         fs::write(dir.join("README.md"), "# Harness\n").unwrap();
-        fs::write(dir.join("spec-schema.yaml"), "schema: placeholder\n").unwrap();
     }
 
     #[test]

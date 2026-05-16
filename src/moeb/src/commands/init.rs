@@ -15,7 +15,6 @@ pub fn run() -> Result<()> {
     fs::create_dir_all(&moeb).context("Failed to create .moeb/")?;
 
     move_or_extract("README.md")?;
-    move_or_extract("spec-schema.yaml")?;
 
     let specs_src = Path::new("specifications");
     let specs_dst = moeb.join("specifications");
