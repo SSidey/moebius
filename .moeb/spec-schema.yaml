@@ -37,6 +37,12 @@ spec:
       decision: string # exact title of the decision being overridden
                        # e.g. "Decision 5 — Fixed 1-second retry delay"
 
+  skill: string    # optional
+  # Name of the skill file to use when running this specification.
+  # The kernel looks for <name>.skill.md in .moeb/skills/ (project override) and
+  # then in the bundled binary assets. Omit to use the default: run.skill.md.
+  # Example: "rust-implementation"
+
   # ---------------------------------------------------------------------------
   # Requirement
   # ---------------------------------------------------------------------------

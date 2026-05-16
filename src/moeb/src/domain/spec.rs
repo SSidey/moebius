@@ -19,6 +19,7 @@ const INPUT_TOKEN: &str = "{{input}}";
 const README_TOKEN: &str = "{{readme_content}}";
 const SPEC_SCHEMA_TOKEN: &str = "{{spec_schema_content}}";
 const RUBRICS_TOKEN: &str = "{{rubrics_content}}";
+const SKILL_CONTENT_TOKEN: &str = "{{skill_content}}";
 const RUBRICS_PATH: &str = "rubrics/rubrics.index.md";
 
 const REQUIRED_SECTIONS: &[&str] = &[
@@ -147,11 +148,14 @@ impl SpecService {
                 "(rubrics catalogue not found — rubrics/rubrics.index.md is absent)".to_string()
             });
 
+        let skill_content = crate::skills::load_skill(working_dir, "spec");
+
         let prompt = template
             .replace(INPUT_TOKEN, input)
             .replace(README_TOKEN, &readme_content)
             .replace(SPEC_SCHEMA_TOKEN, &spec_schema_content)
-            .replace(RUBRICS_TOKEN, &rubrics_content);
+            .replace(RUBRICS_TOKEN, &rubrics_content)
+            .replace(SKILL_CONTENT_TOKEN, &skill_content);
 
         eprintln!("[moeb] generating specification (up to {} attempt(s))...", retry_limit);
 

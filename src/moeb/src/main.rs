@@ -13,6 +13,7 @@ pub mod config;
 pub mod domain;
 pub mod ports;
 pub mod run_state;
+pub mod skills;
 pub mod tools;
 pub mod trace;
 pub mod version_tests;

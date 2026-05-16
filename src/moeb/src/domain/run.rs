@@ -17,8 +17,10 @@ const PROMPT_FILE: &str = "run.prompt";
 const SPEC_TOKEN: &str = "{{spec}}";
 const README_TOKEN: &str = "{{readme_content}}";
 const SPEC_CONTENT_TOKEN: &str = "{{spec_content}}";
+const SKILL_CONTENT_TOKEN: &str = "{{skill_content}}";
 const SPECS_DIR: &str = ".moeb/specifications";
 const README_PATH: &str = ".moeb/README.md";
+const MOEB_DIR: &str = ".moeb";
 
 pub struct RunService {
     factory: Arc<dyn AdapterFactoryPort>,
@@ -88,10 +90,16 @@ impl RunService {
         let spec_content = fs::read_to_string(&spec_path)
             .with_context(|| format!("Cannot read {}", spec_path.display()))?;
 
+        let moeb_dir = Path::new(MOEB_DIR);
+        let skill_name = crate::skills::extract_skill_name(&spec_content)
+            .unwrap_or_else(|| "run".to_string());
+        let skill_content = crate::skills::load_skill(moeb_dir, &skill_name);
+
         let prompt = template
             .replace(SPEC_TOKEN, &rel_path)
             .replace(README_TOKEN, &readme_content)
-            .replace(SPEC_CONTENT_TOKEN, &spec_content);
+            .replace(SPEC_CONTENT_TOKEN, &spec_content)
+            .replace(SKILL_CONTENT_TOKEN, &skill_content);
 
         let spec_slug = spec_path
             .file_stem()

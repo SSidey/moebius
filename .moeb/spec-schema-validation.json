@@ -1,7 +1,7 @@
 {
   "frontmatter": {
     "required": ["domain", "slug", "status"],
-    "optional": ["supersedes"]
+    "optional": ["supersedes", "skill"]
   },
   "body": {
     "required_sections": [

@@ -11,6 +11,9 @@ The following files have been pre-loaded as context — do not call read_file fo
 === rubrics/rubrics.index.md ===
 {{rubrics_content}}
 
+=== Workflow ===
+{{skill_content}}
+
 Do not re-read any file already present in your context window. If you need to refer to
 content from a pre-loaded section or from a tool result returned in an earlier turn, locate
 it in your context directly rather than making another tool call. This applies to all read

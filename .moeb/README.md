@@ -56,6 +56,14 @@ table with the criterion `id` as the Name value. Criteria specific to the spec a
 listed as additional rows. The rubrics index is a mutable harness document and is not
 subject to the immutability policy.
 
+**Skills.** A catalogue of workflow skill files is maintained under `.moeb/skills/`.
+Each skill file is a markdown document that defines the phases an agent follows during
+a `moeb run` or `moeb spec` invocation. Skill files are mutable harness documents and
+are not subject to the immutability policy. The default skills (`run.skill.md`,
+`spec.skill.md`) are bundled in the binary; placing a file of the same name in
+`.moeb/skills/` overrides the default for that project. A specification may declare
+`skill: <name>` in its frontmatter to select a non-default skill.
+
 ---
 
 ## How to use this harness
@@ -132,6 +140,7 @@ Organised by domain. Add a new `###` subsection for each domain as it is introdu
 | Conversation History Compaction | Introduces a compaction step that fires before every adapter.send() call, replacing old ToolResult message contents with one-line summaries once total history exceeds a configurable character threshold, reducing per-request token count and Anthropic rate-limit pressure on long runs | [specifications/moeb/moeb.conversation-compaction.md](specifications/moeb/moeb.conversation-compaction.md) | active |
 | Test File Separation | Extracts inline #[cfg(test)] blocks from the ten source files with ≥ 80 lines of test code into companion *_tests.rs files in the same directory using Rust's #[path] attribute, reducing source file sizes for AI agents while preserving private function access via super:: | [specifications/moeb/moeb.test-file-separation.md](specifications/moeb/moeb.test-file-separation.md) | active |
 | Task-List Tools | Adds create_task_list, update_task, and verify_rubrics tools to the kernel with shared per-run RunState, a phase-aware Continue nudge, and additive run.prompt changes that wire the three tools into the existing discovery-and-implementation workflow | [specifications/moeb/moeb.task-list-tools.md](specifications/moeb/moeb.task-list-tools.md) | active |
+| Agent Skills | Introduces a skill file system — markdown workflow documents in assets/skills/ (binary-bundled defaults) overridable via .moeb/skills/ — injected into run.prompt and spec.prompt via {{skill_content}}, with optional skill: frontmatter field for per-spec workflow selection | [specifications/moeb/moeb.agent-skills.md](specifications/moeb/moeb.agent-skills.md) | active |
 
 ### vcs
 
