@@ -67,8 +67,7 @@ are not subject to the immutability policy. The default skills (`run.skill.md`,
 **Roles.** A catalogue of agent persona files is maintained under `.moeb/roles/`.
 Each role file is a markdown document that defines the agent's identity, expertise,
 and values for a given class of run. Role files are mutable harness documents and are
-not subject to the immutability policy. The default roles (`run.role.md`,
-`spec.role.md`) are bundled in the binary; placing a file of the same name in
+not subject to the immutability policy. The default roles (`run.role.md`, `spec.role.md`) are bundled in the binary; placing a file of the same name in
 `.moeb/roles/` overrides the default for that project. A specification may declare
 `role: <name>` in its frontmatter to select a non-default role.
 
@@ -158,6 +157,7 @@ Organised by domain. Add a new `###` subsection for each domain as it is introdu
 | Name | Description | Path | Status |
 |------|-------------|------|--------|
 | Git Initialisation and Initial Commit | Initialises git source control, establishes the .gitignore, creates the initial commit, and settles the policy that all subsequent commits are user-driven | [specifications/vcs/vcs.git-init.md](specifications/vcs/vcs.git-init.md) | active |
+| Specification Branch and Conventional Commit for Harness Changes | Requires a dedicated git branch and a Conventional Commits message when creating a specification and registering it in the README index | [specifications/vcs/vcs.specification-branch-and-commit.md](specifications/vcs/vcs.specification-branch-and-commit.md) | active |
 
 ---
 
