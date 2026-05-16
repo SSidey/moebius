@@ -8,6 +8,7 @@ pub mod adapters;
 pub mod agent;
 pub mod assets;
 pub mod commands;
+pub mod compaction;
 pub mod config;
 pub mod domain;
 pub mod ports;

@@ -303,6 +303,7 @@ pub fn run_replay_from_envelope(envelope: &TraceEnvelope, attempt_override: Opti
         50,
         &noop_trace,
         target_attempt,
+        crate::agent::CompactionConfig::default(),
     )?;
 
     if !result.is_empty() {

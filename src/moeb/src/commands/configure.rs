@@ -50,8 +50,46 @@ pub fn run_configure(key: &str, value: &str) -> Result<()> {
             cfg.save()?;
             println!("PROMPT_CACHE set to {}", cfg.effective_prompt_cache());
         }
+        "COMPACTION_ENABLED" => {
+            let parsed = match value.to_ascii_lowercase().as_str() {
+                "true" => true,
+                "false" => false,
+                _ => anyhow::bail!(
+                    "COMPACTION_ENABLED requires true or false. Got: \"{}\"",
+                    value
+                ),
+            };
+            let mut cfg = MoebConfig::load()?;
+            cfg.compaction_enabled = Some(parsed);
+            cfg.save()?;
+            println!("COMPACTION_ENABLED set to {}.", parsed);
+        }
+        "COMPACTION_THRESHOLD" => {
+            let parsed: usize = value.parse().map_err(|_| {
+                anyhow::anyhow!(
+                    "COMPACTION_THRESHOLD requires a positive integer value. Got: \"{}\"",
+                    value
+                )
+            })?;
+            let mut cfg = MoebConfig::load()?;
+            cfg.compaction_threshold = Some(parsed);
+            cfg.save()?;
+            println!("COMPACTION_THRESHOLD set to {}.", parsed);
+        }
+        "COMPACTION_KEEP_TURNS" => {
+            let parsed: u32 = value.parse().map_err(|_| {
+                anyhow::anyhow!(
+                    "COMPACTION_KEEP_TURNS requires a non-negative integer value. Got: \"{}\"",
+                    value
+                )
+            })?;
+            let mut cfg = MoebConfig::load()?;
+            cfg.compaction_keep_turns = Some(parsed);
+            cfg.save()?;
+            println!("COMPACTION_KEEP_TURNS set to {}.", parsed);
+        }
         other => anyhow::bail!(
-            "Unknown configuration key \"{}\". Valid keys: RUN_RETENTION, LOG_FILE_CONTENT, PROMPT_CACHE",
+            "Unknown configuration key \"{}\". Valid keys: RUN_RETENTION, LOG_FILE_CONTENT, PROMPT_CACHE, COMPACTION_ENABLED, COMPACTION_THRESHOLD, COMPACTION_KEEP_TURNS",
             other
         ),
     }
@@ -63,6 +101,9 @@ pub fn run_list() -> Result<()> {
     let retention = cfg.effective_run_retention();
     let log_content = cfg.effective_log_file_content();
     let prompt_cache = cfg.effective_prompt_cache();
+    let compaction_enabled = cfg.effective_compaction_enabled();
+    let compaction_threshold = cfg.effective_compaction_threshold();
+    let compaction_keep_turns = cfg.effective_compaction_keep_turns();
     println!(
         "{:<20} {:<8} {:<10} {}",
         "KEY", "VALUE", "DEFAULT", "DESCRIPTION"
@@ -87,6 +128,27 @@ pub fn run_list() -> Result<()> {
         prompt_cache,
         "true",
         "Enable Anthropic prompt caching (cache_control on system prompt)"
+    );
+    println!(
+        "{:<20} {:<8} {:<10} {}",
+        "COMPACTION_ENABLED",
+        compaction_enabled,
+        "true",
+        "Enable history compaction before adapter.send()"
+    );
+    println!(
+        "{:<20} {:<8} {:<10} {}",
+        "COMPACTION_THRESHOLD",
+        compaction_threshold,
+        "80000",
+        "ToolResult character threshold that triggers compaction"
+    );
+    println!(
+        "{:<20} {:<8} {:<10} {}",
+        "COMPACTION_KEEP_TURNS",
+        compaction_keep_turns,
+        "3",
+        "Number of most recent tool-call turns kept verbatim"
     );
     Ok(())
 }

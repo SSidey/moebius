@@ -119,6 +119,15 @@ pub struct CacheUsageEvent {
     pub cache_created_tokens: u64,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CompactionEvent {
+    pub attempt: u32,
+    pub turn: u32,
+    pub chars_before: usize,
+    pub chars_after: usize,
+    pub messages_compacted: usize,
+}
+
 // ── Tagged union ──────────────────────────────────────────────────────────────
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -132,6 +141,7 @@ pub enum TraceEvent {
     TurnEnd(TurnEndEvent),
     AgentFinished(AgentFinishedEvent),
     CacheUsage(CacheUsageEvent),
+    Compaction(CompactionEvent),
 }
 
 // ── Envelope ──────────────────────────────────────────────────────────────────

@@ -5,11 +5,23 @@ use std::sync::Arc;
 use crate::adapters::{AgentResponse, Message, ToolDef};
 use crate::ports::{AiPort, ToolExecutorPort};
 use crate::trace::{
-    apply_content_policy, AgentFinishReason, AgentFinishedEvent, FileContentMode, ToolCallEvent,
-    TraceContext, TraceEvent, TurnEndEvent, TurnResponseType, TurnStartEvent,
+    apply_content_policy, AgentFinishReason, AgentFinishedEvent, CompactionEvent, FileContentMode,
+    ToolCallEvent, TraceContext, TraceEvent, TurnEndEvent, TurnResponseType, TurnStartEvent,
 };
 
 pub const MAX_TURNS: usize = 50;
+
+pub struct CompactionConfig {
+    pub enabled: bool,
+    pub threshold: usize,
+    pub keep_turns: u32,
+}
+
+impl Default for CompactionConfig {
+    fn default() -> Self {
+        Self { enabled: false, threshold: 80_000, keep_turns: 3 }
+    }
+}
 
 // ── Agent loop ────────────────────────────────────────────────────────────────
 
@@ -30,7 +42,7 @@ pub fn run_agent_loop(
         file_content_mode: FileContentMode::Embed,
     }));
     let executor = crate::tools::RealToolExecutor::new();
-    run_agent_loop_inner(adapter, &executor, &tools, working_dir, messages, MAX_TURNS, &noop_trace, 1, true)
+    run_agent_loop_inner(adapter, &executor, &tools, working_dir, messages, MAX_TURNS, &noop_trace, 1, true, CompactionConfig::default())
 }
 
 pub fn run_agent_loop_traced(
@@ -42,8 +54,9 @@ pub fn run_agent_loop_traced(
     max_turns: usize,
     trace: &TraceContext,
     attempt: u32,
+    compaction_config: CompactionConfig,
 ) -> Result<String> {
-    run_agent_loop_inner(adapter, tool_exec, tools, working_dir, initial_messages, max_turns, trace, attempt, false)
+    run_agent_loop_inner(adapter, tool_exec, tools, working_dir, initial_messages, max_turns, trace, attempt, false, compaction_config)
 }
 
 /// Variant for `moeb run`: continues the loop on text turns until at least one `write_file`
@@ -57,8 +70,9 @@ pub fn run_agent_loop_run_mode(
     max_turns: usize,
     trace: &TraceContext,
     attempt: u32,
+    compaction_config: CompactionConfig,
 ) -> Result<String> {
-    run_agent_loop_inner(adapter, tool_exec, tools, working_dir, initial_messages, max_turns, trace, attempt, true)
+    run_agent_loop_inner(adapter, tool_exec, tools, working_dir, initial_messages, max_turns, trace, attempt, true, compaction_config)
 }
 
 fn run_agent_loop_inner(
@@ -71,6 +85,7 @@ fn run_agent_loop_inner(
     trace: &TraceContext,
     attempt: u32,
     require_write_before_completion: bool,
+    compaction_config: CompactionConfig,
 ) -> Result<String> {
     let mut messages = initial_messages;
     let mut write_file_dispatched = false;
@@ -81,6 +96,22 @@ fn run_agent_loop_inner(
 
         trace.current_turn.store(turn_num, std::sync::atomic::Ordering::SeqCst);
         trace.current_attempt.store(attempt, std::sync::atomic::Ordering::SeqCst);
+
+        if compaction_config.enabled {
+            if let Some(stats) = crate::compaction::compact_history(
+                &mut messages,
+                compaction_config.threshold,
+                compaction_config.keep_turns,
+            ) {
+                trace.push(TraceEvent::Compaction(CompactionEvent {
+                    attempt,
+                    turn: turn_num,
+                    chars_before: stats.chars_before,
+                    chars_after: stats.chars_after,
+                    messages_compacted: stats.messages_compacted,
+                }));
+            }
+        }
 
         trace.push(TraceEvent::TurnStart(TurnStartEvent {
             attempt,
@@ -357,6 +388,7 @@ mod tests {
             50,
             &trace,
             1,
+            CompactionConfig::default(),
         )
     }
 

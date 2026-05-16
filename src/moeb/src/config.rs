@@ -55,6 +55,12 @@ pub struct MoebConfig {
     pub log_file_content: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub prompt_cache: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub compaction_enabled: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub compaction_threshold: Option<usize>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub compaction_keep_turns: Option<u32>,
     #[serde(default, skip_serializing_if = "HashMap::is_empty")]
     pub adapters: HashMap<String, AdapterConfig>,
 }
@@ -74,6 +80,18 @@ impl MoebConfig {
 
     pub fn effective_prompt_cache(&self) -> bool {
         self.prompt_cache.unwrap_or(true)
+    }
+
+    pub fn effective_compaction_enabled(&self) -> bool {
+        self.compaction_enabled.unwrap_or(true)
+    }
+
+    pub fn effective_compaction_threshold(&self) -> usize {
+        self.compaction_threshold.unwrap_or(80_000)
+    }
+
+    pub fn effective_compaction_keep_turns(&self) -> u32 {
+        self.compaction_keep_turns.unwrap_or(3)
     }
 
     pub fn adapter_config(&self, name: &str) -> AdapterConfig {
@@ -262,10 +280,8 @@ pub(crate) mod tests {
         let (_dir, _guard) = in_temp_dir();
         fs::create_dir_all(MOEB_DIR).unwrap();
 
-        // Default when absent
         assert_eq!(AdapterConfig::default().effective_timeout_secs(600), 600);
 
-        // Round-trip through config.toml
         let mut config = MoebConfig::default();
         config.adapters.insert("anthropic".to_string(), AdapterConfig {
             model: None,
@@ -318,5 +334,20 @@ pub(crate) mod tests {
         let text = fs::read_to_string(config_path()).unwrap();
         assert!(text.contains("run_retention"), "run_retention must be written");
         assert!(text.contains("log_file_content"), "log_file_content must be written");
+    }
+
+    #[test]
+    fn compaction_defaults_and_round_trip() {
+        let (_dir, _guard) = in_temp_dir();
+        fs::create_dir_all(MOEB_DIR).unwrap();
+        let mut config = MoebConfig::default();
+        config.compaction_enabled = Some(false);
+        config.compaction_threshold = Some(12_345);
+        config.compaction_keep_turns = Some(7);
+        config.save().unwrap();
+        let loaded = MoebConfig::load().unwrap();
+        assert!(!loaded.effective_compaction_enabled());
+        assert_eq!(loaded.effective_compaction_threshold(), 12_345);
+        assert_eq!(loaded.effective_compaction_keep_turns(), 7);
     }
 }

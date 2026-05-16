@@ -188,6 +188,11 @@ impl SpecService {
                 let tools = crate::tools::ToolRegistry::standard().definitions();
                 let executor = crate::tools::RealToolExecutor::new();
                 let initial_messages = vec![crate::adapters::Message::User(prompt.clone())];
+                let compaction_config = crate::agent::CompactionConfig {
+                    enabled: cfg.effective_compaction_enabled(),
+                    threshold: cfg.effective_compaction_threshold(),
+                    keep_turns: cfg.effective_compaction_keep_turns(),
+                };
                 let raw = match crate::agent::run_agent_loop_traced(
                     ai.as_ref(),
                     &executor,
@@ -197,6 +202,7 @@ impl SpecService {
                     MAX_TURNS,
                     &trace,
                     attempt,
+                    compaction_config,
                 ) {
                     Ok(r) => r,
                     Err(e) => return Err(e),
@@ -315,6 +321,7 @@ impl SpecService {
             MAX_TURNS,
             &noop_trace,
             1,
+            crate::agent::CompactionConfig::default(),
         )?;
         println!("Updated: .moeb/README.md");
         Ok(())
