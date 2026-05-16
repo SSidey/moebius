@@ -130,8 +130,14 @@ impl RunService {
 
         let working_dir = Path::new(".");
         let state = crate::run_state::new_shared_run_state();
-        let tools = crate::tools::ToolRegistry::standard(std::sync::Arc::clone(&state)).definitions();
-        let executor = crate::tools::RealToolExecutor::new(std::sync::Arc::clone(&state));
+        let tools = crate::tools::ToolRegistry::with_spawn_agent(
+            std::sync::Arc::clone(&state),
+            std::sync::Arc::clone(&ai),
+        ).definitions();
+        let executor = crate::tools::RealToolExecutor::new_coordinator(
+            std::sync::Arc::clone(&state),
+            std::sync::Arc::clone(&ai),
+        );
         let initial_messages = vec![crate::adapters::Message::User(prompt)];
         let compaction_config = crate::agent::CompactionConfig {
             enabled: cfg.effective_compaction_enabled(),

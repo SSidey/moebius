@@ -6,6 +6,7 @@ pub mod read_file;
 pub mod read_file_range;
 pub mod read_files;
 pub mod search_files;
+pub mod spawn_agent;
 pub mod update_task;
 pub mod verify_rubrics;
 pub mod write_file;
@@ -77,6 +78,27 @@ impl ToolRegistry {
         r
     }
 
+    /// Register the eight sub-agent tools (six read tools + task-list, no write/patch/spawn).
+    pub fn sub_agent(state: SharedRunState) -> Self {
+        let mut r = Self::new();
+        r.register(Box::new(read_file::ReadFileTool));
+        r.register(Box::new(read_files::ReadFilesTool));
+        r.register(Box::new(read_file_range::ReadFileRangeTool));
+        r.register(Box::new(list_directory::ListDirectoryTool));
+        r.register(Box::new(search_files::SearchFilesTool));
+        r.register(Box::new(grep_files::GrepFilesTool));
+        r.register(Box::new(create_task_list::CreateTaskListTool { state: std::sync::Arc::clone(&state) }));
+        r.register(Box::new(update_task::UpdateTaskTool { state: std::sync::Arc::clone(&state) }));
+        r
+    }
+
+    /// Register the twelve coordinator tools (eleven standard tools + spawn_agent).
+    pub fn with_spawn_agent(state: SharedRunState, adapter: std::sync::Arc<dyn crate::ports::AiPort>) -> Self {
+        let mut r = Self::standard(std::sync::Arc::clone(&state));
+        r.register(Box::new(spawn_agent::SpawnAgentTool { adapter }));
+        r
+    }
+
     pub fn register(&mut self, handler: Box<dyn ToolHandler>) {
         self.handlers.insert(handler.name(), handler);
     }
@@ -102,7 +124,7 @@ impl ToolRegistry {
         let order = [
             "read_file", "write_file", "patch_file", "list_directory",
             "search_files", "grep_files", "read_files", "read_file_range",
-            "create_task_list", "update_task", "verify_rubrics",
+            "create_task_list", "update_task", "verify_rubrics", "spawn_agent",
         ];
         order.iter()
             .filter_map(|name| self.handlers.get(name).map(|h| h.definition()))
@@ -128,6 +150,27 @@ impl RealToolExecutor {
     pub fn new(state: SharedRunState) -> Self {
         Self {
             registry: ToolRegistry::standard(std::sync::Arc::clone(&state)),
+            cache: Mutex::new(HashMap::new()),
+            read_paths: Mutex::new(std::collections::HashSet::new()),
+            state,
+        }
+    }
+
+    pub fn new_sub_agent(state: SharedRunState) -> Self {
+        Self {
+            registry: ToolRegistry::sub_agent(std::sync::Arc::clone(&state)),
+            cache: Mutex::new(HashMap::new()),
+            read_paths: Mutex::new(std::collections::HashSet::new()),
+            state,
+        }
+    }
+
+    pub fn new_coordinator(
+        state: SharedRunState,
+        adapter: std::sync::Arc<dyn crate::ports::AiPort>,
+    ) -> Self {
+        Self {
+            registry: ToolRegistry::with_spawn_agent(std::sync::Arc::clone(&state), adapter),
             cache: Mutex::new(HashMap::new()),
             read_paths: Mutex::new(std::collections::HashSet::new()),
             state,

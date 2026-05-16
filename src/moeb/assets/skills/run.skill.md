@@ -9,6 +9,30 @@ Call `create_task_list` as your very first tool call. Derive one task per number
 in the specification's `## Steps` section. Each task entry must state which file(s) it
 touches and what change is required.
 
+## Phase 1a — Delegate (optional)
+
+After creating your task list, identify tasks that are **independent and
+analysis-heavy** (reading multiple files to propose a diff with no ordering dependency
+on other tasks). For each such task, call `spawn_agent` instead of doing the work
+inline:
+
+- `task` — one precise instruction: which files to read and what diff to produce.
+- `context` — the spec steps, file paths, and constraints the sub-agent needs.
+
+`spawn_agent` is synchronous: it blocks until the sub-agent returns its text response.
+Process sub-agents one at a time.
+
+**Applying a sub-agent diff:**
+
+1. Call `read_file` on the file the sub-agent proposes to change (required for scope
+   enforcement — the coordinator must have read a file before patching it).
+2. Call `patch_file` with the unified diff from the sub-agent's response.
+3. Mark the corresponding coordinator task as done.
+
+Do not spawn a sub-agent for tasks that require writing new files that do not yet exist
+(scope enforcement is bypassed for new files, so write them directly) or for tasks
+that depend on the output of a prior task's write.
+
 ## Phase 2 — Scope
 
 Before modifying anything, locate all relevant code:
