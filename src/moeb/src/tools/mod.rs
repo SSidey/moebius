@@ -1,6 +1,7 @@
 pub mod create_task_list;
 pub mod grep_files;
 pub mod list_directory;
+pub mod patch_file;
 pub mod read_file;
 pub mod read_file_range;
 pub mod read_files;
@@ -59,11 +60,12 @@ impl ToolRegistry {
         Self { handlers: HashMap::new() }
     }
 
-    /// Register the ten standard tools (seven file tools + three task-list tools).
+    /// Register the eleven standard tools (eight file tools + three task-list tools).
     pub fn standard(state: SharedRunState) -> Self {
         let mut r = Self::new();
         r.register(Box::new(read_file::ReadFileTool));
         r.register(Box::new(write_file::WriteFileTool));
+        r.register(Box::new(patch_file::PatchFileTool));
         r.register(Box::new(list_directory::ListDirectoryTool));
         r.register(Box::new(search_files::SearchFilesTool));
         r.register(Box::new(grep_files::GrepFilesTool));
@@ -98,7 +100,7 @@ impl ToolRegistry {
     /// Returns definitions in stable order.
     pub fn definitions(&self) -> Vec<ToolDef> {
         let order = [
-            "read_file", "write_file", "list_directory",
+            "read_file", "write_file", "patch_file", "list_directory",
             "search_files", "grep_files", "read_files", "read_file_range",
             "create_task_list", "update_task", "verify_rubrics",
         ];
@@ -142,7 +144,7 @@ impl ToolExecutorPort for RealToolExecutor {
         working_dir: &Path,
         current_turn: u32,
     ) -> Result<(String, bool)> {
-        if name == "write_file" {
+        if name == "write_file" || name == "patch_file" {
             if !self.state.lock().unwrap().task_list_created() {
                 eprintln!(
                     "moeb: warning: write_file called without a prior create_task_list \

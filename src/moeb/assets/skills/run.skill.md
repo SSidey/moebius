@@ -31,7 +31,12 @@ For each task in your task list, in order:
    requires each change (pre-write declaration — HARD RULE 4).
 2. Read the current file content. Use `read_file_range` for targeted sections; use
    `read_file` only when writing a complete file replacement.
-3. Write the file using `write_file` with the complete new content.
+3. Write the change:
+   - If changing fewer than ~20 lines in a file already read in full, use `patch_file`
+     with a unified diff — only the changed lines are transmitted.
+   - Otherwise use `write_file` with the complete new content.
+   Never use `patch_file` on a file you have not read via `read_file` or `read_files`
+   in this run.
 4. Call `update_task` with `status: "done"`.
 
 Continue until all tasks are marked done.
