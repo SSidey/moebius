@@ -2,7 +2,7 @@ use anyhow::Result;
 
 use crate::config::{AdapterConfig, MoebConfig, Secrets};
 
-const KNOWN_ADAPTERS: &[&str] = &["openai", "anthropic"];
+const KNOWN_ADAPTERS: &[&str] = &["openai", "anthropic", "ollama"];
 
 fn secret_key_for(adapter: &str) -> Option<&'static str> {
     match adapter {
@@ -16,6 +16,7 @@ fn valid_keys_for(adapter: &str) -> &'static [&'static str] {
     match adapter {
         "openai" => &["MODEL", "RETRIES"],
         "anthropic" => &["MODEL", "RETRIES", "TIMEOUT"],
+        "ollama" => &["MODEL", "RETRIES"],
         _ => &[],
     }
 }

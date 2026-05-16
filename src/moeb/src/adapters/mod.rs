@@ -2,6 +2,7 @@ pub mod anthropic;
 pub mod cli;
 pub mod embedded_assets;
 pub mod openai;
+pub mod ollama;
 pub mod retry;
 
 use anyhow::Result;
@@ -24,6 +25,9 @@ impl AdapterFactoryPort for DefaultAdapterFactory {
             )),
             "anthropic" => Ok(Arc::new(
                 crate::adapters::anthropic::AnthropicAdapter::from_secrets_and_config_with_trace(trace)?
+            )),
+            "ollama" => Ok(Arc::new(
+                crate::adapters::ollama::OllamaAdapter::from_secrets_and_config_with_trace(trace)?
             )),
             "" => anyhow::bail!("No adapter configured. Run `moeb use <adapter>` first."),
             other => anyhow::bail!(

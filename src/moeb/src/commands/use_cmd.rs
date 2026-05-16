@@ -4,15 +4,17 @@ use rpassword::prompt_password;
 use crate::adapters::anthropic::DEFAULT_TIMEOUT_SECS as ANTHROPIC_DEFAULT_TIMEOUT_SECS;
 use crate::config::{MoebConfig, Secrets};
 
-const KNOWN_ADAPTERS: &[&str] = &["openai", "anthropic"];
+const KNOWN_ADAPTERS: &[&str] = &["openai", "anthropic", "ollama"];
 
 const OPENAI_DEFAULT_MODEL: &str = "gpt-4o";
 const ANTHROPIC_DEFAULT_MODEL: &str = "claude-opus-4-7";
+const OLLAMA_DEFAULT_MODEL: &str = "llama3.1";
 
 pub fn run(adapter: &str) -> Result<()> {
     match adapter {
         "openai" => configure_openai(),
         "anthropic" => configure_anthropic(),
+        "ollama" => configure_ollama(),
         other => anyhow::bail!(
             "Unknown adapter '{}'. Available adapters: {}",
             other,
@@ -33,6 +35,7 @@ fn adapter_display_name(adapter: &str) -> &str {
     match adapter {
         "openai" => "OpenAI",
         "anthropic" => "Anthropic",
+        "ollama" => "Ollama",
         _ => adapter,
     }
 }
@@ -60,7 +63,6 @@ fn configure_adapter(
         if !already_configured {
             anyhow::bail!("API key must not be empty.");
         }
-        // existing key retained — nothing to write
     } else {
         let mut secrets = Secrets::load()?;
         secrets.set(secret_key, trimmed)?;
@@ -91,6 +93,15 @@ fn configure_anthropic() -> Result<()> {
         |prompt| prompt_password(prompt).context("Failed to read API key"),
         print_anthropic_config_summary,
     )
+}
+
+fn configure_ollama() -> Result<()> {
+    let mut config = MoebConfig::load()?;
+    config.active_adapter = Some("ollama".to_string());
+    config.save()?;
+    println!("Ollama adapter configured.");
+    print_ollama_config_summary(&config);
+    Ok(())
 }
 
 pub fn print_anthropic_config_summary(config: &MoebConfig) {
@@ -136,6 +147,25 @@ pub fn print_openai_config_summary(config: &MoebConfig) {
     println!("To remove credentials: moeb adapter openai release");
 }
 
+pub fn print_ollama_config_summary(config: &MoebConfig) {
+    let ac = config.adapter_config("ollama");
+    let model = ac.effective_model(OLLAMA_DEFAULT_MODEL);
+    let retries = ac.effective_retries();
+
+    println!();
+    println!("Configuration options (current effective values):");
+    println!(
+        "  {:<8} {:<16} moeb adapter ollama config MODEL <value>",
+        "MODEL", model
+    );
+    println!(
+        "  {:<8} {:<16} moeb adapter ollama config RETRIES <count>",
+        "RETRIES", retries
+    );
+    println!();
+    println!("Ollama uses a local service and does not require API credentials.");
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -166,56 +196,27 @@ mod tests {
         MoebConfig::load().ok().and_then(|c| c.active_adapter)
     }
 
-    // ── OpenAI — no existing key ─────────────────────────────────────────────
-
     #[test]
     fn use_openai_without_existing_key_requires_non_empty_input() {
         let (_dir, _guard) = setup_moeb_dir();
-        let err = configure_adapter(
-            "openai",
-            "OPENAI_API_KEY",
-            |_| Ok(String::new()),
-            print_openai_config_summary,
-        )
-        .unwrap_err();
-        assert!(
-            err.to_string().contains("must not be empty"),
-            "unexpected error: {err}"
-        );
+        let err = configure_adapter("openai", "OPENAI_API_KEY", |_| Ok(String::new()), print_openai_config_summary).unwrap_err();
+        assert!(err.to_string().contains("must not be empty"), "unexpected error: {err}");
     }
 
     #[test]
     fn use_openai_without_existing_key_stores_provided_key() {
         let (_dir, _guard) = setup_moeb_dir();
-        configure_adapter(
-            "openai",
-            "OPENAI_API_KEY",
-            |_| Ok("sk-new".to_string()),
-            print_openai_config_summary,
-        )
-        .unwrap();
+        configure_adapter("openai", "OPENAI_API_KEY", |_| Ok("sk-new".to_string()), print_openai_config_summary).unwrap();
         assert_eq!(read_secret("OPENAI_API_KEY").as_deref(), Some("sk-new"));
         assert_eq!(read_active_adapter().as_deref(), Some("openai"));
     }
-
-    // ── OpenAI — existing key ────────────────────────────────────────────────
 
     #[test]
     fn use_openai_with_existing_key_empty_input_keeps_key() {
         let (_dir, _guard) = setup_moeb_dir();
         seed_secret("OPENAI_API_KEY", "sk-existing");
-        configure_adapter(
-            "openai",
-            "OPENAI_API_KEY",
-            |_| Ok(String::new()),
-            print_openai_config_summary,
-        )
-        .unwrap();
-        assert_eq!(
-            read_secret("OPENAI_API_KEY").as_deref(),
-            Some("sk-existing"),
-            "existing key must be preserved"
-        );
+        configure_adapter("openai", "OPENAI_API_KEY", |_| Ok(String::new()), print_openai_config_summary).unwrap();
+        assert_eq!(read_secret("OPENAI_API_KEY").as_deref(), Some("sk-existing"));
         assert_eq!(read_active_adapter().as_deref(), Some("openai"));
     }
 
@@ -223,13 +224,7 @@ mod tests {
     fn use_openai_with_existing_key_new_input_replaces_key() {
         let (_dir, _guard) = setup_moeb_dir();
         seed_secret("OPENAI_API_KEY", "sk-old");
-        configure_adapter(
-            "openai",
-            "OPENAI_API_KEY",
-            |_| Ok("sk-new".to_string()),
-            print_openai_config_summary,
-        )
-        .unwrap();
+        configure_adapter("openai", "OPENAI_API_KEY", |_| Ok("sk-new".to_string()), print_openai_config_summary).unwrap();
         assert_eq!(read_secret("OPENAI_API_KEY").as_deref(), Some("sk-new"));
     }
 
@@ -238,56 +233,30 @@ mod tests {
         let (_dir, _guard) = setup_moeb_dir();
         seed_secret("OPENAI_API_KEY", "sk-existing");
         let mut captured_prompt = String::new();
-        configure_adapter(
-            "openai",
-            "OPENAI_API_KEY",
-            |prompt| {
-                captured_prompt = prompt.to_string();
-                Ok(String::new())
-            },
-            print_openai_config_summary,
-        )
-        .unwrap();
-        assert!(
-            captured_prompt.contains("press Enter to keep the existing one"),
-            "prompt must mention Enter option; got: {captured_prompt}"
-        );
+        configure_adapter("openai", "OPENAI_API_KEY", |prompt| { captured_prompt = prompt.to_string(); Ok(String::new()) }, print_openai_config_summary).unwrap();
+        assert!(captured_prompt.contains("press Enter to keep the existing one"), "prompt must mention Enter option; got: {captured_prompt}");
     }
-
-    // ── Anthropic — no existing key ──────────────────────────────────────────
 
     #[test]
     fn use_anthropic_without_existing_key_requires_non_empty_input() {
         let (_dir, _guard) = setup_moeb_dir();
-        let err = configure_adapter(
-            "anthropic",
-            "ANTHROPIC_API_KEY",
-            |_| Ok(String::new()),
-            print_anthropic_config_summary,
-        )
-        .unwrap_err();
-        assert!(
-            err.to_string().contains("must not be empty"),
-            "unexpected error: {err}"
-        );
+        let err = configure_adapter("anthropic", "ANTHROPIC_API_KEY", |_| Ok(String::new()), print_anthropic_config_summary).unwrap_err();
+        assert!(err.to_string().contains("must not be empty"), "unexpected error: {err}");
     }
 
     #[test]
     fn use_anthropic_with_existing_key_empty_input_keeps_key() {
         let (_dir, _guard) = setup_moeb_dir();
         seed_secret("ANTHROPIC_API_KEY", "sk-ant-existing");
-        configure_adapter(
-            "anthropic",
-            "ANTHROPIC_API_KEY",
-            |_| Ok(String::new()),
-            print_anthropic_config_summary,
-        )
-        .unwrap();
-        assert_eq!(
-            read_secret("ANTHROPIC_API_KEY").as_deref(),
-            Some("sk-ant-existing"),
-            "existing Anthropic key must be preserved"
-        );
+        configure_adapter("anthropic", "ANTHROPIC_API_KEY", |_| Ok(String::new()), print_anthropic_config_summary).unwrap();
+        assert_eq!(read_secret("ANTHROPIC_API_KEY").as_deref(), Some("sk-ant-existing"));
         assert_eq!(read_active_adapter().as_deref(), Some("anthropic"));
+    }
+
+    #[test]
+    fn use_ollama_sets_active_adapter_without_secret() {
+        let (_dir, _guard) = setup_moeb_dir();
+        configure_ollama().unwrap();
+        assert_eq!(read_active_adapter().as_deref(), Some("ollama"));
     }
 }

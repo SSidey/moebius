@@ -2,7 +2,7 @@ use anyhow::Result;
 
 use crate::config::{MoebConfig, Secrets};
 
-const KNOWN_ADAPTERS: &[&str] = &["openai", "anthropic"];
+const KNOWN_ADAPTERS: &[&str] = &["openai", "anthropic", "ollama"];
 
 fn secret_key_for(adapter: &str) -> Option<&'static str> {
     match adapter {
@@ -19,7 +19,7 @@ pub fn run() -> Result<()> {
     println!("{:<12} {:<16} {}", "ADAPTER", "STATE", "ACTIVE");
     for &name in KNOWN_ADAPTERS {
         let secret_key = secret_key_for(name).unwrap_or("");
-        let configured = !secret_key.is_empty() && secrets.get(secret_key).is_some();
+        let configured = if name == "ollama" { true } else { !secret_key.is_empty() && secrets.get(secret_key).is_some() };
         let state = if configured { "configured" } else { "not configured" };
         let active = if config.active_adapter.as_deref() == Some(name) { "yes" } else { "no" };
         println!("{:<12} {:<16} {}", name, state, active);

@@ -4,5 +4,8 @@ active_adapter = "openai"
 model = "claude-sonnet-4-6"
 retries = 3
 
+[adapters.ollama]
+model = "qwen2.5-coder:14b-instruct-q8_0"
+
 [adapters.openai]
 model = "gpt-5.4-mini"
