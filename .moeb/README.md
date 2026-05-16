@@ -64,6 +64,14 @@ are not subject to the immutability policy. The default skills (`run.skill.md`,
 `.moeb/skills/` overrides the default for that project. A specification may declare
 `skill: <name>` in its frontmatter to select a non-default skill.
 
+**Roles.** A catalogue of agent persona files is maintained under `.moeb/roles/`.
+Each role file is a markdown document that defines the agent's identity, expertise,
+and values for a given class of run. Role files are mutable harness documents and are
+not subject to the immutability policy. The default roles (`run.role.md`,
+`spec.role.md`) are bundled in the binary; placing a file of the same name in
+`.moeb/roles/` overrides the default for that project. A specification may declare
+`role: <name>` in its frontmatter to select a non-default role.
+
 ---
 
 ## How to use this harness
@@ -141,6 +149,7 @@ Organised by domain. Add a new `###` subsection for each domain as it is introdu
 | Test File Separation | Extracts inline #[cfg(test)] blocks from the ten source files with ≥ 80 lines of test code into companion *_tests.rs files in the same directory using Rust's #[path] attribute, reducing source file sizes for AI agents while preserving private function access via super:: | [specifications/moeb/moeb.test-file-separation.md](specifications/moeb/moeb.test-file-separation.md) | active |
 | Task-List Tools | Adds create_task_list, update_task, and verify_rubrics tools to the kernel with shared per-run RunState, a phase-aware Continue nudge, and additive run.prompt changes that wire the three tools into the existing discovery-and-implementation workflow | [specifications/moeb/moeb.task-list-tools.md](specifications/moeb/moeb.task-list-tools.md) | active |
 | Agent Skills | Introduces a skill file system — markdown workflow documents in assets/skills/ (binary-bundled defaults) overridable via .moeb/skills/ — injected into run.prompt and spec.prompt via {{skill_content}}, with optional skill: frontmatter field for per-spec workflow selection | [specifications/moeb/moeb.agent-skills.md](specifications/moeb/moeb.agent-skills.md) | active |
+| Agent Roles | Introduces a role file system — markdown persona documents in assets/roles/ (binary-bundled defaults) overridable via .moeb/roles/ — injected at the top of run.prompt and spec.prompt via {{role_content}}, replacing the generic opening sentence with domain-specific agent identity and values | [specifications/moeb/moeb.agent-roles.md](specifications/moeb/moeb.agent-roles.md) | active |
 
 ### vcs
 

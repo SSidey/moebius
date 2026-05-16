@@ -20,6 +20,7 @@ const README_TOKEN: &str = "{{readme_content}}";
 const SPEC_SCHEMA_TOKEN: &str = "{{spec_schema_content}}";
 const RUBRICS_TOKEN: &str = "{{rubrics_content}}";
 const SKILL_CONTENT_TOKEN: &str = "{{skill_content}}";
+const ROLE_CONTENT_TOKEN: &str = "{{role_content}}";
 const RUBRICS_PATH: &str = "rubrics/rubrics.index.md";
 
 const REQUIRED_SECTIONS: &[&str] = &[
@@ -149,8 +150,10 @@ impl SpecService {
             });
 
         let skill_content = crate::skills::load_skill(working_dir, "spec");
+        let role_content = crate::skills::load_role(working_dir, "spec");
 
         let prompt = template
+            .replace(ROLE_CONTENT_TOKEN, &role_content)
             .replace(INPUT_TOKEN, input)
             .replace(README_TOKEN, &readme_content)
             .replace(SPEC_SCHEMA_TOKEN, &spec_schema_content)

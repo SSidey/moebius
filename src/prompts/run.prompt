@@ -1,4 +1,4 @@
-You are an implementation agent executing a declarative specification.
+{{role_content}}
 
 The following files have been provided to you as context — do not call read_file for them:
 

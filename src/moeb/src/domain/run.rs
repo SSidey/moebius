@@ -18,6 +18,7 @@ const SPEC_TOKEN: &str = "{{spec}}";
 const README_TOKEN: &str = "{{readme_content}}";
 const SPEC_CONTENT_TOKEN: &str = "{{spec_content}}";
 const SKILL_CONTENT_TOKEN: &str = "{{skill_content}}";
+const ROLE_CONTENT_TOKEN: &str = "{{role_content}}";
 const SPECS_DIR: &str = ".moeb/specifications";
 const README_PATH: &str = ".moeb/README.md";
 const MOEB_DIR: &str = ".moeb";
@@ -94,8 +95,12 @@ impl RunService {
         let skill_name = crate::skills::extract_skill_name(&spec_content)
             .unwrap_or_else(|| "run".to_string());
         let skill_content = crate::skills::load_skill(moeb_dir, &skill_name);
+        let role_name = crate::skills::extract_role_name(&spec_content)
+            .unwrap_or_else(|| "run".to_string());
+        let role_content = crate::skills::load_role(moeb_dir, &role_name);
 
         let prompt = template
+            .replace(ROLE_CONTENT_TOKEN, &role_content)
             .replace(SPEC_TOKEN, &rel_path)
             .replace(README_TOKEN, &readme_content)
             .replace(SPEC_CONTENT_TOKEN, &spec_content)

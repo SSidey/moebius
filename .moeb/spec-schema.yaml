@@ -43,6 +43,12 @@ spec:
   # then in the bundled binary assets. Omit to use the default: run.skill.md.
   # Example: "rust-implementation"
 
+  role: string     # optional
+  # Name of the role file to use when running this specification.
+  # The kernel looks for <name>.role.md in .moeb/roles/ (project override) and
+  # then in the bundled binary assets. Omit to use the default: run.role.md.
+  # Example: "rust-tdd"
+
   # ---------------------------------------------------------------------------
   # Requirement
   # ---------------------------------------------------------------------------

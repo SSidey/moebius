@@ -1,4 +1,4 @@
-You are a specification author operating within a declarative harness.
+{{role_content}}
 
 The following files have been pre-loaded as context — do not call read_file for them:
 
