@@ -7,6 +7,10 @@ use crate::ports::AiPort;
 use crate::trace::{CacheUsageEvent, HttpRequestEvent, HttpRetryEvent, QuotaWarningEvent, TraceContext, TraceEvent};
 use super::{retry, Adapter, AgentResponse, Message, ToolCall, ToolDef};
 
+#[path = "openai_io.rs"]
+mod openai_io;
+use self::openai_io::{to_openai_message, to_openai_tool, parse_response};
+
 const API_URL: &str = "https://api.openai.com/v1/chat/completions";
 const DEFAULT_MODEL: &str = "gpt-4o";
 
@@ -233,132 +237,6 @@ fn headers_to_json(headers: &reqwest::header::HeaderMap) -> serde_json::Value {
     serde_json::Value::Object(map)
 }
 
-// ── Serialisation helpers ─────────────────────────────────────────────────────
-
-fn to_openai_message(msg: &Message) -> serde_json::Value {
-    match msg {
-        Message::System(content) => json!({ "role": "system", "content": content }),
-        Message::User(content) => json!({ "role": "user", "content": content }),
-        Message::Assistant(content) => json!({ "role": "assistant", "content": content }),
-        Message::AssistantToolCalls(calls) => json!({
-            "role": "assistant",
-            "content": null,
-            "tool_calls": calls.iter().map(|c| json!({
-                "id": c.id,
-                "type": "function",
-                "function": { "name": c.name, "arguments": c.arguments }
-            })).collect::<Vec<_>>()
-        }),
-        Message::ToolResult { call_id, content } => json!({
-            "role": "tool",
-            "tool_call_id": call_id,
-            "content": content
-        }),
-    }
-}
-
-fn to_openai_tool(def: &ToolDef) -> serde_json::Value {
-    json!({
-        "type": "function",
-        "function": {
-            "name": def.name,
-            "description": def.description,
-            "parameters": def.parameters
-        }
-    })
-}
-
-// ── Response parsing ──────────────────────────────────────────────────────────
-
-fn parse_response(value: &serde_json::Value) -> Result<AgentResponse> {
-    let message = value
-        .pointer("/choices/0/message")
-        .context("Missing choices[0].message in OpenAI response")?;
-
-    let finish_reason = value
-        .pointer("/choices/0/finish_reason")
-        .and_then(|v| v.as_str())
-        .unwrap_or("");
-
-    if finish_reason == "tool_calls" {
-        let calls = message["tool_calls"]
-            .as_array()
-            .context("Expected tool_calls array in assistant message")?
-            .iter()
-            .map(parse_tool_call)
-            .collect::<Result<Vec<_>>>()?;
-        return Ok(AgentResponse::ToolCalls(calls));
-    }
-
-    let content = message["content"]
-        .as_str()
-        .unwrap_or("")
-        .to_string();
-    Ok(AgentResponse::Text(content))
-}
-
-fn parse_tool_call(value: &serde_json::Value) -> Result<ToolCall> {
-    Ok(ToolCall {
-        id: value["id"]
-            .as_str()
-            .context("Tool call missing id")?
-            .to_string(),
-        name: value
-            .pointer("/function/name")
-            .and_then(|v| v.as_str())
-            .context("Tool call missing function.name")?
-            .to_string(),
-        arguments: value
-            .pointer("/function/arguments")
-            .and_then(|v| v.as_str())
-            .context("Tool call missing function.arguments")?
-            .to_string(),
-    })
-}
-
-// ── Tests ─────────────────────────────────────────────────────────────────────
-
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use std::env;
-    use std::fs;
-    use tempfile::TempDir;
-
-    use crate::config::{tests::CWD_LOCK, AdapterConfig, MoebConfig, Secrets, MOEB_DIR};
-
-    fn in_temp_dir() -> (TempDir, std::sync::MutexGuard<'static, ()>) {
-        let guard = CWD_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-        let dir = tempfile::tempdir().expect("tempdir");
-        env::set_current_dir(dir.path()).expect("set_current_dir");
-        fs::create_dir_all(MOEB_DIR).expect("create .moeb dir");
-        (dir, guard)
-    }
-
-    #[test]
-    fn openai_adapter_uses_configured_retries() {
-        let (_dir, _guard) = in_temp_dir();
-        let mut secrets = Secrets::load().unwrap();
-        secrets.set("OPENAI_API_KEY", "sk-dummy").unwrap();
-        let mut config = MoebConfig::load().unwrap();
-        config.adapters.insert("openai".to_string(), AdapterConfig {
-            model: None,
-            retries: Some(2),
-            timeout_secs: None,
-        });
-        config.save().unwrap();
-
-        let adapter = OpenAiAdapter::from_secrets_and_config().unwrap();
-        assert_eq!(adapter.retries, 2);
-    }
-
-    #[test]
-    fn openai_adapter_uses_default_retries_when_absent() {
-        let (_dir, _guard) = in_temp_dir();
-        let mut secrets = Secrets::load().unwrap();
-        secrets.set("OPENAI_API_KEY", "sk-dummy").unwrap();
-
-        let adapter = OpenAiAdapter::from_secrets_and_config().unwrap();
-        assert_eq!(adapter.retries, 0);
-    }
-}
+#[path = "openai_tests.rs"]
+mod tests;

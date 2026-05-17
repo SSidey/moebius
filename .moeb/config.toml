@@ -1,11 +1,11 @@
 active_adapter = "openai"
 
-[adapters.anthropic]
-model = "claude-sonnet-4-6"
-retries = 3
+[adapters.openai]
+model = "gpt-5.4-mini"
 
 [adapters.ollama]
 model = "qwen2.5-coder:14b-instruct-q8_0"
 
-[adapters.openai]
-model = "gpt-5.4-mini"
+[adapters.anthropic]
+model = "claude-sonnet-4-6"
+retries = 3

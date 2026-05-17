@@ -7,6 +7,14 @@ use crate::ports::AiPort;
 use crate::trace::{CacheUsageEvent, HttpRequestEvent, HttpRetryEvent, QuotaWarningEvent, TraceContext, TraceEvent};
 use super::{retry, Adapter, AgentResponse, Message, ToolCall, ToolDef};
 
+#[path = "anthropic_request.rs"]
+mod anthropic_request;
+pub(crate) use self::anthropic_request::build_request_body;
+
+#[path = "anthropic_response.rs"]
+mod anthropic_response;
+use self::anthropic_response::parse_response;
+
 const API_URL: &str = "https://api.anthropic.com/v1/messages";
 const ANTHROPIC_VERSION: &str = "2023-06-01";
 const DEFAULT_MODEL: &str = "claude-opus-4-7";
@@ -249,169 +257,6 @@ fn headers_to_json(headers: &reqwest::header::HeaderMap) -> Value {
         }
     }
     Value::Object(map)
-}
-
-// ── Request construction ──────────────────────────────────────────────────────
-
-pub(crate) fn build_request_body(
-    model: &str,
-    messages: &[Message],
-    tools: &[ToolDef],
-    prompt_cache: bool,
-) -> Result<Value> {
-    let mut system_prompt: Option<String> = None;
-    let non_system: Vec<&Message> = messages
-        .iter()
-        .filter(|m| {
-            if let Message::System(content) = m {
-                if system_prompt.is_none() {
-                    system_prompt = Some(content.clone());
-                }
-                false
-            } else {
-                true
-            }
-        })
-        .collect();
-
-    let anthropic_messages = build_messages(&non_system)?;
-
-    let tools_json: Vec<Value> = tools
-        .iter()
-        .map(|def| json!({
-            "name": def.name,
-            "description": def.description,
-            "input_schema": def.parameters,
-        }))
-        .collect();
-
-    let mut body = serde_json::Map::new();
-    body.insert("model".into(), json!(model));
-    body.insert("max_tokens".into(), json!(MAX_TOKENS));
-    if let Some(sys) = system_prompt {
-        if prompt_cache {
-            body.insert("system".into(), json!([{
-                "type": "text",
-                "text": sys,
-                "cache_control": {"type": "ephemeral"}
-            }]));
-        } else {
-            body.insert("system".into(), json!(sys));
-        }
-    }
-    body.insert("messages".into(), json!(anthropic_messages));
-    if !tools_json.is_empty() {
-        body.insert("tools".into(), json!(tools_json));
-    }
-
-    Ok(Value::Object(body))
-}
-
-pub(crate) fn build_messages(messages: &[&Message]) -> Result<Vec<Value>> {
-    let mut result: Vec<Value> = Vec::new();
-    let mut i = 0;
-
-    while i < messages.len() {
-        if let Message::ToolResult { .. } = messages[i] {
-            let mut tool_results: Vec<Value> = Vec::new();
-            while i < messages.len() {
-                if let Message::ToolResult { call_id, content } = messages[i] {
-                    tool_results.push(json!({
-                        "type": "tool_result",
-                        "tool_use_id": call_id,
-                        "content": content,
-                    }));
-                    i += 1;
-                } else {
-                    break;
-                }
-            }
-            result.push(json!({
-                "role": "user",
-                "content": tool_results,
-            }));
-        } else {
-            result.push(to_anthropic_message(messages[i])?);
-            i += 1;
-        }
-    }
-
-    Ok(result)
-}
-
-fn to_anthropic_message(msg: &Message) -> Result<Value> {
-    match msg {
-        Message::System(_) => unreachable!("System messages are filtered before build_messages"),
-        Message::User(content) => Ok(json!({
-            "role": "user",
-            "content": content,
-        })),
-        Message::Assistant(content) => Ok(json!({
-            "role": "assistant",
-            "content": [{"type": "text", "text": content}],
-        })),
-        Message::AssistantToolCalls(calls) => {
-            let blocks: Result<Vec<Value>> = calls
-                .iter()
-                .map(|call| {
-                    let input: Value = serde_json::from_str(&call.arguments)
-                        .with_context(|| format!("Failed to parse tool arguments for '{}'", call.name))?;
-                    Ok(json!({
-                        "type": "tool_use",
-                        "id": call.id,
-                        "name": call.name,
-                        "input": input,
-                    }))
-                })
-                .collect();
-            Ok(json!({
-                "role": "assistant",
-                "content": blocks?,
-            }))
-        }
-        Message::ToolResult { .. } => unreachable!("ToolResult handled in batch loop"),
-    }
-}
-
-// ── Response parsing ──────────────────────────────────────────────────────────
-
-fn parse_response(value: &Value) -> Result<AgentResponse> {
-    let stop_reason = value["stop_reason"].as_str().unwrap_or("");
-    let content = value["content"]
-        .as_array()
-        .context("Missing content array in Anthropic response")?;
-
-    if stop_reason == "tool_use" {
-        let calls: Result<Vec<ToolCall>> = content
-            .iter()
-            .filter(|block| block["type"].as_str() == Some("tool_use"))
-            .map(parse_tool_call)
-            .collect();
-        return Ok(AgentResponse::ToolCalls(calls?));
-    }
-
-    let text = content
-        .iter()
-        .find(|block| block["type"].as_str() == Some("text"))
-        .and_then(|block| block["text"].as_str())
-        .unwrap_or("")
-        .to_string();
-
-    Ok(AgentResponse::Text(text))
-}
-
-fn parse_tool_call(block: &Value) -> Result<ToolCall> {
-    let id = block["id"]
-        .as_str()
-        .context("Tool use block missing id")?
-        .to_string();
-    let name = block["name"]
-        .as_str()
-        .context("Tool use block missing name")?
-        .to_string();
-    let arguments = serde_json::to_string(&block["input"])
-        .context("Failed to serialise tool call input")?;
-    Ok(ToolCall { id, name, arguments })
 }
 
 // ── Tests ─────────────────────────────────────────────────────────────────────

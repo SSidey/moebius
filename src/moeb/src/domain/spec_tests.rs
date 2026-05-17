@@ -1,4 +1,5 @@
     use super::*;
+    use super::spec_parser::{parse_frontmatter, validate_sections};
 
     fn valid_body() -> String {
         [
