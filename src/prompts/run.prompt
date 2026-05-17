@@ -11,6 +11,9 @@ The following files have been provided to you as context — do not call read_fi
 === Workflow ===
 {{skill_content}}
 
+=== Rubric criteria (baseline + project) ===
+{{command_rubrics}}
+
 If a `read_file` result begins with `[CACHE HIT:`, the file has not changed since it was sent; locate the content in your context from the indicated turn and use it directly — do not re-read the file.
 
 Harness constraints you must follow at all times:
@@ -29,3 +32,13 @@ HARD RULES — any violation is a critical failure and the run must not be consi
 3. Function scope: If a function, type, constant, or comment is not named or directly implied by the specification, its body must be copied byte-for-byte from the source. Do not simplify, reformat, rename, or restructure it.
 
 4. Pre-write declaration: Before your first write_file call on any file, output a short list of the exact items you will modify in that file and which specification step requires each change. Do not write the file until that list is complete.
+
+5. Rubric verification: when calling verify_rubrics, you must include every criterion
+   from the "Rubric criteria" section above in addition to any criteria listed in the
+   specification's own ## Rubric section. The section contains both the binary-bundled
+   baseline and any project-specific extensions — all are mandatory. For the
+   `context-budget` criterion specifically: check the line count of every file you wrote
+   during this run; if any implementation file exceeds 300 lines (or any *_tests.rs
+   companion exceeds 400 lines), refactor it to meet the budget before calling
+   verify_rubrics with status "pass" for that criterion. Do not mark `context-budget`
+   as "na" — it always applies.

@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use crate::agent::MAX_TURNS;
-use crate::assets::Prompts;
+use crate::assets::{Assets, Prompts};
 use crate::config::MoebConfig;
 use crate::ports::AdapterFactoryPort;
 #[cfg(test)]
@@ -19,6 +19,7 @@ const README_TOKEN: &str = "{{readme_content}}";
 const SPEC_CONTENT_TOKEN: &str = "{{spec_content}}";
 const SKILL_CONTENT_TOKEN: &str = "{{skill_content}}";
 const ROLE_CONTENT_TOKEN: &str = "{{role_content}}";
+const COMMAND_RUBRICS_TOKEN: &str = "{{command_rubrics}}";
 const SPECS_DIR: &str = ".moeb/specifications";
 const README_PATH: &str = ".moeb/README.md";
 const MOEB_DIR: &str = ".moeb";
@@ -99,12 +100,30 @@ impl RunService {
             .unwrap_or_else(|| "run".to_string());
         let role_content = crate::skills::load_role(moeb_dir, &role_name);
 
+        let command_rubrics = {
+            let baseline = Assets::get("rubrics/run.rubrics.md")
+                .and_then(|f| std::str::from_utf8(f.data.as_ref()).ok().map(str::to_owned))
+                .unwrap_or_default();
+            let project_path = Path::new(".moeb/rubrics/run.rubrics.md");
+            let project = if project_path.exists() {
+                std::fs::read_to_string(&project_path).unwrap_or_default()
+            } else {
+                String::new()
+            };
+            if project.is_empty() {
+                baseline
+            } else {
+                format!("{}\n\n{}", baseline, project)
+            }
+        };
+
         let prompt = template
             .replace(ROLE_CONTENT_TOKEN, &role_content)
             .replace(SPEC_TOKEN, &rel_path)
             .replace(README_TOKEN, &readme_content)
             .replace(SPEC_CONTENT_TOKEN, &spec_content)
-            .replace(SKILL_CONTENT_TOKEN, &skill_content);
+            .replace(SKILL_CONTENT_TOKEN, &skill_content)
+            .replace(COMMAND_RUBRICS_TOKEN, &command_rubrics);
 
         let spec_slug = spec_path
             .file_stem()

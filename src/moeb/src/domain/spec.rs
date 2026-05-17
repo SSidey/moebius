@@ -28,6 +28,7 @@ const SPEC_SCHEMA_TOKEN: &str = "{{spec_schema_content}}";
 const RUBRICS_TOKEN: &str = "{{rubrics_content}}";
 const SKILL_CONTENT_TOKEN: &str = "{{skill_content}}";
 const ROLE_CONTENT_TOKEN: &str = "{{role_content}}";
+const COMMAND_RUBRICS_TOKEN: &str = "{{command_rubrics}}";
 const RUBRICS_PATH: &str = "rubrics/rubrics.index.md";
 
 pub struct SpecService {
@@ -102,13 +103,31 @@ impl SpecService {
         let skill_content = crate::skills::load_skill(working_dir, "spec");
         let role_content = crate::skills::load_role(working_dir, "spec");
 
+        let command_rubrics = {
+            let baseline = Assets::get("rubrics/spec.rubrics.md")
+                .and_then(|f| std::str::from_utf8(f.data.as_ref()).ok().map(str::to_owned))
+                .unwrap_or_default();
+            let project_path = working_dir.join("rubrics/spec.rubrics.md");
+            let project = if project_path.exists() {
+                std::fs::read_to_string(&project_path).unwrap_or_default()
+            } else {
+                String::new()
+            };
+            if project.is_empty() {
+                baseline
+            } else {
+                format!("{}\n\n{}", baseline, project)
+            }
+        };
+
         let prompt = template
             .replace(ROLE_CONTENT_TOKEN, &role_content)
             .replace(INPUT_TOKEN, input)
             .replace(README_TOKEN, &readme_content)
             .replace(SPEC_SCHEMA_TOKEN, &spec_schema_content)
             .replace(RUBRICS_TOKEN, &rubrics_content)
-            .replace(SKILL_CONTENT_TOKEN, &skill_content);
+            .replace(SKILL_CONTENT_TOKEN, &skill_content)
+            .replace(COMMAND_RUBRICS_TOKEN, &command_rubrics);
 
         eprintln!("[moeb] generating specification (up to {} attempt(s))...", retry_limit);
 

@@ -11,6 +11,9 @@ The following files have been pre-loaded as context — do not call read_file fo
 === rubrics/rubrics.index.md ===
 {{rubrics_content}}
 
+=== Rubric criteria (baseline + project, always required) ===
+{{command_rubrics}}
+
 === Workflow ===
 {{skill_content}}
 
@@ -87,11 +90,15 @@ Follow the field descriptions in spec-schema.yaml precisely. Each step must be d
 for an agent or developer to execute without ambiguity. Each decision must record rationale,
 rejected alternatives, and consequences.
 
-When authoring the `## Rubric / ### Structured` table: for each criterion in the rubrics index
-whose `status` is `active`, evaluate whether it applies to this specification. If it does, copy
-the row verbatim from the index and use the criterion `id` (e.g. `binary-builds`) as the Name
-column value. Add any spec-specific criteria as additional rows beneath the standard ones. Do
-not omit a standard criterion that applies without explicit justification.
+When authoring the `## Rubric / ### Structured` table: first copy every row from the
+"Rubric criteria" section above verbatim — these are mandatory and must appear in every
+specification. The section contains both the binary-bundled baseline and any
+project-specific extensions. Then, for each additional criterion in the rubrics index
+whose `status` is `active`, evaluate whether it applies to this specification. If it
+does, copy the row verbatim from the index and use the criterion `id` (e.g.
+`binary-builds`) as the Name column value. Add any spec-specific criteria as additional
+rows beneath the standard ones. Do not omit a standard criterion that applies without
+explicit justification.
 
 The `### Qualitative` section is always spec-specific and is never drawn from the rubrics index.
 
