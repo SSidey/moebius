@@ -48,13 +48,23 @@ All specification files must conform to the following conventions.
 
 **Supersedes.** When a specification overrides a named decision recorded in a parent specification, it must include a `supersedes:` block in its YAML frontmatter identifying each overridden decision by its path and decision title. Prose rationale for the override must still appear in the Decisions section of the new specification. The frontmatter entry is the machine-readable companion to that prose; both are required when a decision is being overridden.
 
-**Rubrics.** A catalogue of named standard rubric criteria is maintained at
-[`.moeb/rubrics/rubrics.index.md`](./rubrics/rubrics.index.md). Specifications must
-include their own `## Rubric` section. Where a standard named criterion from the
-catalogue applies, its row should be copied verbatim into the spec's structured rubric
-table with the criterion `id` as the Name value. Criteria specific to the spec are
-listed as additional rows. The rubrics index is a mutable harness document and is not
-subject to the immutability policy.
+**Rubrics.** Rubric criteria are applied at five layers. Layers 1–4 are automatically
+combined (in order, empty layers skipped) and injected into agent prompts via
+`{{command_rubrics}}`. Layer 5 is applied by the spec agent based on trait detection.
+
+| Layer | Source | Scope |
+|-------|--------|-------|
+| 1 · global-baseline | `assets/rubrics/global.rubrics.md` (binary) | Every command, every project |
+| 2 · command-baseline | `assets/rubrics/{command}.rubrics.md` (binary) | Every execution of that command |
+| 3 · global-project | `.moeb/rubrics/global.rubrics.md` (project file) | Every command in this project |
+| 4 · command-project | `.moeb/rubrics/{command}.rubrics.md` (project file) | That command in this project |
+| 5 · catalogue-selected | `.moeb/rubrics/rubrics.catalogue.md` | Specs whose traits match the entry |
+
+**Catalogue (`rubrics.catalogue.md`).** A trait-keyed catalogue of conditionally applicable
+criteria. Each entry declares which traits trigger its selection and whether it applies at
+`spec` time (governs spec authoring quality), `run` time (copied into the spec's `## Rubric`
+section for the run agent to verify), or `both`. The catalogue is a mutable harness
+document and is not subject to the immutability policy.
 
 **Skills.** A catalogue of workflow skill files is maintained under `.moeb/skills/`.
 Each skill file is a markdown document that defines the phases an agent follows during
@@ -104,6 +114,7 @@ Organised by domain. Add a new `###` subsection for each domain as it is introdu
 | Formal Supersedes Field | Adds an optional structured `supersedes` frontmatter block that machine-readably records which named decision in a parent spec is being overridden, complementing the existing prose convention in the Decisions section | [specifications/harness/harness.supersedes-field.md](specifications/harness/harness.supersedes-field.md) | active |
 | Schema Split: Documentation and Validation | Splits `spec-schema.yaml` into a human/agent authoring guide and a derived `spec-schema-validation.json` that the kernel loads at validation time, replacing hardcoded section and field lists with schema-driven values | [specifications/harness/harness.schema-split.md](specifications/harness/harness.schema-split.md) | active |
 | Rubrics Index | Introduces `.moeb/rubrics/rubrics.index.md` as a mutable catalogue of named standard rubric criteria that specifications reference by id, ensuring consistent wording and preventing silent omissions of common quality gates | [specifications/harness/harness.rubrics-index.md](specifications/harness/harness.rubrics-index.md) | active |
+| Rubric System Rationalisation: Five-Layer Model and Trait-Keyed Catalogue | Refactors the rubric system to a five-layer model (global-baseline → command-baseline → global-project → command-project → catalogue-selected), renames `rubrics.index.md` to `rubrics.catalogue.md`, adds `Traits` and `Applies At` metadata to enable trait-driven selection with dual spec/run application modes, and removes catalogue entries now owned by automated layers | [specifications/harness/harness.rubric-index-rationalisation.md](specifications/harness/harness.rubric-index-rationalisation.md) | active |
 
 ### moeb
 

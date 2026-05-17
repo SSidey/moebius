@@ -29,7 +29,7 @@ const RUBRICS_TOKEN: &str = "{{rubrics_content}}";
 const SKILL_CONTENT_TOKEN: &str = "{{skill_content}}";
 const ROLE_CONTENT_TOKEN: &str = "{{role_content}}";
 const COMMAND_RUBRICS_TOKEN: &str = "{{command_rubrics}}";
-const RUBRICS_PATH: &str = "rubrics/rubrics.index.md";
+const RUBRICS_PATH: &str = "rubrics/rubrics.catalogue.md";
 
 pub struct SpecService {
     factory: Arc<dyn AdapterFactoryPort>,
@@ -97,27 +97,46 @@ impl SpecService {
 
         let rubrics_content =
             fs::read_to_string(working_dir.join(RUBRICS_PATH)).unwrap_or_else(|_| {
-                "(rubrics catalogue not found — rubrics/rubrics.index.md is absent)".to_string()
+                "(rubrics catalogue not found — rubrics/rubrics.catalogue.md is absent)".to_string()
             });
 
         let skill_content = crate::skills::load_skill(working_dir, "spec");
         let role_content = crate::skills::load_role(working_dir, "spec");
 
         let command_rubrics = {
-            let baseline = Assets::get("rubrics/spec.rubrics.md")
-                .and_then(|f| std::str::from_utf8(f.data.as_ref()).ok().map(str::to_owned))
-                .unwrap_or_default();
-            let project_path = working_dir.join("rubrics/spec.rubrics.md");
-            let project = if project_path.exists() {
-                std::fs::read_to_string(&project_path).unwrap_or_default()
+            let binary_layers: Vec<String> = [
+                // Layer 1: global-baseline (binary)
+                "rubrics/global.rubrics.md",
+                // Layer 2: command-baseline (binary)
+                "rubrics/spec.rubrics.md",
+            ].iter()
+                .filter_map(|asset| {
+                    Assets::get(asset)
+                        .and_then(|f| std::str::from_utf8(f.data.as_ref()).ok().map(str::to_owned))
+                        .filter(|s| !s.trim().is_empty())
+                })
+                .collect();
+
+            // Layer 3: global-project (project file, optional)
+            let global_project_path = working_dir.join("rubrics/global.rubrics.md");
+            let global_project = if global_project_path.exists() {
+                std::fs::read_to_string(&global_project_path).unwrap_or_default()
             } else {
                 String::new()
             };
-            if project.is_empty() {
-                baseline
+
+            // Layer 4: command-project (project file, optional)
+            let command_project_path = working_dir.join("rubrics/spec.rubrics.md");
+            let command_project = if command_project_path.exists() {
+                std::fs::read_to_string(&command_project_path).unwrap_or_default()
             } else {
-                format!("{}\n\n{}", baseline, project)
-            }
+                String::new()
+            };
+
+            let mut combined: Vec<String> = binary_layers;
+            if !global_project.trim().is_empty() { combined.push(global_project); }
+            if !command_project.trim().is_empty() { combined.push(command_project); }
+            combined.join("\n\n")
         };
 
         let prompt = template

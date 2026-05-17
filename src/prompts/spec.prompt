@@ -8,7 +8,7 @@ The following files have been pre-loaded as context — do not call read_file fo
 === spec-schema.yaml ===
 {{spec_schema_content}}
 
-=== rubrics/rubrics.index.md ===
+=== rubrics/rubrics.catalogue.md ===
 {{rubrics_content}}
 
 === Rubric criteria (baseline + project, always required) ===
@@ -90,15 +90,31 @@ Follow the field descriptions in spec-schema.yaml precisely. Each step must be d
 for an agent or developer to execute without ambiguity. Each decision must record rationale,
 rejected alternatives, and consequences.
 
-When authoring the `## Rubric / ### Structured` table: first copy every row from the
-"Rubric criteria" section above verbatim — these are mandatory and must appear in every
-specification. The section contains both the binary-bundled baseline and any
-project-specific extensions. Then, for each additional criterion in the rubrics index
-whose `status` is `active`, evaluate whether it applies to this specification. If it
-does, copy the row verbatim from the index and use the criterion `id` (e.g.
-`binary-builds`) as the Name column value. Add any spec-specific criteria as additional
-rows beneath the standard ones. Do not omit a standard criterion that applies without
-explicit justification.
+When authoring the `## Rubric / ### Structured` table, apply the rubrics catalogue in
+two passes:
+
+**Pass 1 — mandatory baseline rows (always included):**
+Copy every row from the "Rubric criteria" section above verbatim. These rows come from
+the auto-injected layers (global-baseline, command-baseline, global-project,
+command-project) and are mandatory in every specification.
+
+**Pass 2 — catalogue-selected rows (domain then trait-driven):**
+Read the "Rubrics Catalogue" section preloaded above. First filter by Domain: discard any
+entry whose Domain does not match the domain of the specification being authored (e.g.
+ignore `moeb` entries when authoring a `harness` specification). Then examine the raw
+requirement and description to identify which traits are present among the remaining
+entries (e.g. `ai-adapter` if the spec adds or modifies an AI adapter, `openai` if it
+specifically targets the OpenAI adapter). For each catalogue entry that passes both the
+domain filter and has a matching trait:
+- If `Applies At` contains `run` (or `All`, or any other non-`spec` command name): copy
+  the criterion row verbatim into the `## Rubric / ### Structured` table. That command's
+  agent will verify this criterion when implementing the specification.
+- If `Applies At` contains `spec` (or `All`): add the criterion to your working rubric
+  for this `moeb spec` invocation. Verify it against the specification you are authoring
+  before marking the spec complete. Do not copy it into the spec's rubric table.
+
+Do not include catalogue entries whose traits are absent from this specification. Do not
+omit a catalogue entry whose trait is clearly present without explicit justification.
 
 The `### Qualitative` section is always spec-specific and is never drawn from the rubrics index.
 
