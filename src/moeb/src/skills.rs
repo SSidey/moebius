@@ -15,7 +15,7 @@ pub fn load_skill(moeb_dir: &Path, name: &str) -> String {
 
     // 2. Bundled binary asset
     let asset_key = format!("skills/{}.skill.md", name);
-    if let Some(asset) = crate::assets::Assets::get(&asset_key) {
+    if let Some(asset) = crate::assets::Internal::get(&asset_key) {
         if let Ok(content) = std::str::from_utf8(asset.data.as_ref()) {
             return content.to_string();
         }
@@ -60,7 +60,7 @@ pub fn load_role(moeb_dir: &Path, name: &str) -> String {
     }
 
     let asset_key = format!("roles/{}.role.md", name);
-    if let Some(asset) = crate::assets::Assets::get(&asset_key) {
+    if let Some(asset) = crate::assets::Internal::get(&asset_key) {
         if let Ok(content) = std::str::from_utf8(asset.data.as_ref()) {
             return content.to_string();
         }

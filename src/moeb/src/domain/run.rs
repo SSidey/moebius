@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use crate::agent::MAX_TURNS;
-use crate::assets::{Assets, Prompts};
+use crate::assets::{Internal, Prompts};
 use crate::config::MoebConfig;
 use crate::ports::AdapterFactoryPort;
 #[cfg(test)]
@@ -108,7 +108,7 @@ impl RunService {
                 "rubrics/run.rubrics.md",
             ].iter()
                 .filter_map(|asset| {
-                    Assets::get(asset)
+                    Internal::get(asset)
                         .and_then(|f| std::str::from_utf8(f.data.as_ref()).ok().map(str::to_owned))
                         .filter(|s| !s.trim().is_empty())
                 })

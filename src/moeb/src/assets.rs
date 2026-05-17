@@ -5,5 +5,9 @@ use rust_embed::RustEmbed;
 pub struct Assets;
 
 #[derive(RustEmbed)]
+#[folder = "internal/"]
+pub struct Internal;
+
+#[derive(RustEmbed)]
 #[folder = "../prompts/"]
 pub struct Prompts;

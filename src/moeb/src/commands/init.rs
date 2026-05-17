@@ -16,6 +16,13 @@ pub fn run() -> Result<()> {
 
     move_or_extract("README.md")?;
 
+    let rubrics_dst = moeb.join("rubrics");
+    fs::create_dir_all(&rubrics_dst).context("Failed to create .moeb/rubrics/")?;
+    fs::write(rubrics_dst.join("global.rubrics.md"), b"")
+        .context("Failed to create .moeb/rubrics/global.rubrics.md")?;
+    fs::write(rubrics_dst.join("rubrics.catalogue.md"), b"")
+        .context("Failed to create .moeb/rubrics/rubrics.catalogue.md")?;
+
     let specs_src = Path::new("specifications");
     let specs_dst = moeb.join("specifications");
     if specs_src.exists() {
