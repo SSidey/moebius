@@ -15,8 +15,21 @@ Write the complete specification document conforming to the schema:
   `slug`, `status`. Include `supersedes` if this spec overrides a named decision.
 - Include all required sections in this order: title (H1), Raw Requirement, Description,
   Diagram (fenced Mermaid block), Backlinks, Steps, Decisions, Rubric.
-- For rubric criteria, copy any applicable standard criterion from `rubrics.index.md`
-  verbatim (id as the Name value). Add spec-specific criteria as additional rows.
+- For the `## Rubric / ### Structured` table, apply criteria in two passes:
+
+  **Pass 1 — baseline rows (mandatory):**
+  Copy every row from the injected `{{command_rubrics}}` section verbatim into the
+  `## Rubric / ### Structured` table. These rows are mandatory in every specification.
+
+  **Pass 2 — catalogue-selected rows (trait-driven):**
+  Read the `catalogue.rubrics.md` section pre-loaded above. Filter by Domain to match
+  the domain of the specification being authored, then identify traits present in the
+  raw requirement and description. For each matching catalogue entry:
+  - If `Applies At` contains `run`, `All`, or any command other than `spec`: copy the
+    criterion row verbatim into the `## Rubric / ### Structured` table.
+  - If `Applies At` contains `spec` or `All`: verify this criterion against the
+    specification you are authoring before marking it complete. Do not copy it into
+    the rubric table.
 - Backlinks must include at minimum one Parents entry pointing to `README.md`.
 
 ## Phase 3 — Validate before output
@@ -26,6 +39,8 @@ Before producing output, verify:
 - All required sections exist and are non-empty.
 - The Mermaid diagram block is syntactically plausible.
 - The Rubric section contains at least one structured criterion.
+- The `## Rubric / ### Structured` table contains at minimum every row copied from the
+  `{{command_rubrics}}` baseline (Pass 1 above).
 
 ## Phase 4 — Output
 

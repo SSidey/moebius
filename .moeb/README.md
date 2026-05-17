@@ -60,7 +60,7 @@ combined (in order, empty layers skipped) and injected into agent prompts via
 | 4 · command-project | `.moeb/rubrics/{command}.rubrics.md` (project file) | That command in this project |
 | 5 · catalogue-selected | `.moeb/rubrics/rubrics.catalogue.md` | Specs whose traits match the entry |
 
-**Catalogue (`rubrics.catalogue.md`).** A trait-keyed catalogue of conditionally applicable
+**Catalogue (`catalogue.rubrics.md`).** A trait-keyed catalogue of conditionally applicable
 criteria. Each entry declares which traits trigger its selection and whether it applies at
 `spec` time (governs spec authoring quality), `run` time (copied into the spec's `## Rubric`
 section for the run agent to verify), or `both`. The catalogue is a mutable harness
@@ -116,6 +116,7 @@ Organised by domain. Add a new `###` subsection for each domain as it is introdu
 | Rubrics Index | Introduces `.moeb/rubrics/rubrics.index.md` as a mutable catalogue of named standard rubric criteria that specifications reference by id, ensuring consistent wording and preventing silent omissions of common quality gates | [specifications/harness/harness.rubrics-index.md](specifications/harness/harness.rubrics-index.md) | active |
 | Rubric System Rationalisation: Five-Layer Model and Trait-Keyed Catalogue | Refactors the rubric system to a five-layer model (global-baseline → command-baseline → global-project → command-project → catalogue-selected), renames `rubrics.index.md` to `rubrics.catalogue.md`, adds `Traits` and `Applies At` metadata to enable trait-driven selection with dual spec/run application modes, and removes catalogue entries now owned by automated layers | [specifications/harness/harness.rubric-index-rationalisation.md](specifications/harness/harness.rubric-index-rationalisation.md) | active |
 | Moeb Init Rubric Storage Boundary | Define the initial rubric-storage layout created by `moeb init` and separate binary-bundled assets from kernel-internal source files. The initialization flow must create an empty project rubric directory containing the global rubric file and rubric catalogue, while the binary assets directory remains reserved for files that are copied into a project during initialization. | [specifications/harness/harness.init-rubric-storage-boundary.md](specifications/harness/harness.init-rubric-storage-boundary.md) | active |
+| Rubric Templates, Init Copy, Consistent Naming, and Skill-Based Enforcement | Replaces hardcoded empty file creation on `moeb init` with asset template copying, renames the catalogue file to `catalogue.rubrics.md` for naming consistency, strips instructional preamble from internal rubric files leaving only tables, and adds explicit rubric enforcement phases to run and spec skills | [specifications/harness/harness.rubric-templates-and-init-copy.md](specifications/harness/harness.rubric-templates-and-init-copy.md) | active |
 
 ### moeb
 

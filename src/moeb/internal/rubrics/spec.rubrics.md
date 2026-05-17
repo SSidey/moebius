@@ -1,8 +1,3 @@
-## Baseline spec rubric criteria
-
-The following criteria must appear in the `## Rubric / ### Structured` table of every
-specification you create. Copy each row verbatim into the table.
-
 | Name | Description | Threshold | Pass Condition |
 |------|-------------|-----------|----------------|
 | `no-drift` | The specification does not violate any decision recorded in a linked parent specification | Zero contradictions | Manual review of every decision in every parent spec listed in Backlinks |

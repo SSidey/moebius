@@ -29,7 +29,7 @@ const RUBRICS_TOKEN: &str = "{{rubrics_content}}";
 const SKILL_CONTENT_TOKEN: &str = "{{skill_content}}";
 const ROLE_CONTENT_TOKEN: &str = "{{role_content}}";
 const COMMAND_RUBRICS_TOKEN: &str = "{{command_rubrics}}";
-const RUBRICS_PATH: &str = "rubrics/rubrics.catalogue.md";
+const RUBRICS_PATH: &str = "rubrics/catalogue.rubrics.md";
 
 pub struct SpecService {
     factory: Arc<dyn AdapterFactoryPort>,
@@ -97,7 +97,7 @@ impl SpecService {
 
         let rubrics_content =
             fs::read_to_string(working_dir.join(RUBRICS_PATH)).unwrap_or_else(|_| {
-                "(rubrics catalogue not found — rubrics/rubrics.catalogue.md is absent)".to_string()
+                "(rubrics catalogue not found — rubrics/catalogue.rubrics.md is absent)".to_string()
             });
 
         let skill_content = crate::skills::load_skill(working_dir, "spec");

@@ -67,8 +67,23 @@ Continue until all tasks are marked done.
 
 ## Phase 4 — Verify
 
-Call `verify_rubrics` with a pass, fail, or na verdict for each structured rubric
-criterion in the specification's `## Rubric` section.
+Collect all rubric criteria from two sources:
+
+1. The injected `{{command_rubrics}}` section (the combined baseline and project layers).
+   Every row in this section is mandatory and must receive a verdict.
+2. The specification's `## Rubric / ### Structured` table. Every row is mandatory.
+
+For each criterion, evaluate pass, fail, or na:
+
+- `context-budget`: Check the line count of every file written during this run. If any
+  implementation file exceeds 300 lines, or any `*_tests.rs` companion file exceeds
+  400 lines, refactor it to meet the budget before assigning a verdict. This criterion
+  is never `na`.
+- All other criteria: apply the stated Pass Condition. Mark `na` only when the criterion
+  genuinely does not apply to this specification's scope.
+
+Call `verify_rubrics` with the complete list of verdicts covering all criteria from both
+sources. Do not call `verify_rubrics` with a partial list.
 
 ## Phase 5 — Complete
 

@@ -8,7 +8,7 @@ The following files have been pre-loaded as context — do not call read_file fo
 === spec-schema.yaml ===
 {{spec_schema_content}}
 
-=== rubrics/rubrics.catalogue.md ===
+=== rubrics/catalogue.rubrics.md ===
 {{rubrics_content}}
 
 === Rubric criteria (baseline + project, always required) ===

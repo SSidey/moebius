@@ -18,10 +18,15 @@ pub fn run() -> Result<()> {
 
     let rubrics_dst = moeb.join("rubrics");
     fs::create_dir_all(&rubrics_dst).context("Failed to create .moeb/rubrics/")?;
-    fs::write(rubrics_dst.join("global.rubrics.md"), b"")
-        .context("Failed to create .moeb/rubrics/global.rubrics.md")?;
-    fs::write(rubrics_dst.join("rubrics.catalogue.md"), b"")
-        .context("Failed to create .moeb/rubrics/rubrics.catalogue.md")?;
+    for name in &[
+        "global.rubrics.md",
+        "run.rubrics.md",
+        "spec.rubrics.md",
+        "catalogue.rubrics.md",
+        "README.md",
+    ] {
+        copy_rubric_asset(name, &rubrics_dst)?;
+    }
 
     let specs_src = Path::new("specifications");
     let specs_dst = moeb.join("specifications");
@@ -51,6 +56,15 @@ fn move_or_extract(name: &str) -> Result<()> {
         fs::write(&dst, asset.data.as_ref())
             .with_context(|| format!("Failed to write .moeb/{}", name))?;
     }
+    Ok(())
+}
+
+fn copy_rubric_asset(name: &str, dst: &Path) -> Result<()> {
+    let key = format!("rubrics/{}", name);
+    let asset = Assets::get(&key)
+        .with_context(|| format!("Embedded rubric asset '{}' not found in binary", key))?;
+    fs::write(dst.join(name), asset.data.as_ref())
+        .with_context(|| format!("Failed to write rubric asset to {}", dst.join(name).display()))?;
     Ok(())
 }
 
