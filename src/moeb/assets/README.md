@@ -44,6 +44,40 @@ All specification files must conform to the following conventions.
 
 ---
 
+## AI-First Organisation
+
+AI agents process source files as linear text blocks. Unlike human developers, agents
+cannot use outline views, jump-to-definition, or collapsible sections to skip over
+irrelevant code. Every line in a file the agent opens is a line of context consumed.
+The following four principles minimise that cost.
+
+**One concern per file.** Each source file implements exactly one identifiable concern.
+When a file's responsibilities can be described with "and" — serialisation *and* parsing,
+orchestration *and* schema loading, HTTP transport *and* response mapping — the file must
+be split. The test for this principle: can the file's purpose be stated as a single
+noun phrase without a conjunction? If not, split it.
+
+**Context locality.** Code that is read or modified together lives in the same file.
+If implementing a change to one feature requires opening more than two files, the code
+is mis-organised. Refactor so that each feature's definition, usage, and supporting
+helpers are co-located.
+
+**Grep-discoverable names.** Every identifier — function, type, module, constant — is
+specific enough that searching for it by name returns fewer than ten results across the
+codebase. Generic names such as `process`, `handle`, `util`, `helper`, `common`, and
+`base` are prohibited unless they are module-scoped and genuinely universal. The test:
+if `grep <name> src/` returns more than ten hits, the name is too generic.
+
+**No cross-cutting helpers.** A utility function lives in the same file as its only
+caller. If a helper serves three or more callers in different modules, it is promoted to
+a dedicated module with a precise name describing its purpose (e.g. `retry.rs`,
+`auth_strip.rs`) — never to a generic `utils.rs`, `helpers.rs`, or `common.rs`.
+
+These principles are enforced by the `ai-first-org` rubric criterion, which appears in
+the spec baseline rubric and is verified by the spec agent at authoring time.
+
+---
+
 ## How to use this harness
 
 All specifications are authored according to [`spec-schema.yaml`](./spec-schema.yaml) and stored under `specifications/<domain>/`. The `src/` directory contains all artifacts produced from those specifications.
