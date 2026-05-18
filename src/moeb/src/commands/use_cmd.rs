@@ -2,18 +2,21 @@ use anyhow::{Context, Result};
 use rpassword::prompt_password;
 
 use crate::adapters::anthropic::DEFAULT_TIMEOUT_SECS as ANTHROPIC_DEFAULT_TIMEOUT_SECS;
+use crate::adapters::gemini::DEFAULT_TIMEOUT_SECS as GEMINI_DEFAULT_TIMEOUT_SECS;
 use crate::config::{MoebConfig, Secrets};
 
-const KNOWN_ADAPTERS: &[&str] = &["openai", "anthropic", "ollama"];
+const KNOWN_ADAPTERS: &[&str] = &["openai", "anthropic", "gemini", "ollama"];
 
 const OPENAI_DEFAULT_MODEL: &str = "gpt-4o";
 const ANTHROPIC_DEFAULT_MODEL: &str = "claude-opus-4-7";
+const GEMINI_DEFAULT_MODEL: &str = "gemini-2.0-flash";
 const OLLAMA_DEFAULT_MODEL: &str = "llama3.1";
 
 pub fn run(adapter: &str) -> Result<()> {
     match adapter {
         "openai" => configure_openai(),
         "anthropic" => configure_anthropic(),
+        "gemini" => configure_gemini(),
         "ollama" => configure_ollama(),
         other => anyhow::bail!(
             "Unknown adapter '{}'. Available adapters: {}",
@@ -27,6 +30,7 @@ fn credential_key_for(adapter: &str) -> &'static str {
     match adapter {
         "openai" => "OPENAI_API_KEY",
         "anthropic" => "ANTHROPIC_API_KEY",
+        "gemini" => "GEMINI_API_KEY",
         _ => unreachable!("caller validates adapter name"),
     }
 }
@@ -35,6 +39,7 @@ fn adapter_display_name(adapter: &str) -> &str {
     match adapter {
         "openai" => "OpenAI",
         "anthropic" => "Anthropic",
+        "gemini" => "Gemini",
         "ollama" => "Ollama",
         _ => adapter,
     }
@@ -95,6 +100,15 @@ fn configure_anthropic() -> Result<()> {
     )
 }
 
+fn configure_gemini() -> Result<()> {
+    configure_adapter(
+        "gemini",
+        credential_key_for("gemini"),
+        |prompt| prompt_password(prompt).context("Failed to read API key"),
+        print_gemini_config_summary,
+    )
+}
+
 fn configure_ollama() -> Result<()> {
     let mut config = MoebConfig::load()?;
     config.active_adapter = Some("ollama".to_string());
@@ -145,6 +159,30 @@ pub fn print_openai_config_summary(config: &MoebConfig) {
     );
     println!();
     println!("To remove credentials: moeb adapter openai release");
+}
+
+pub fn print_gemini_config_summary(config: &MoebConfig) {
+    let ac = config.adapter_config("gemini");
+    let model = ac.effective_model(GEMINI_DEFAULT_MODEL);
+    let retries = ac.effective_retries();
+    let timeout = ac.effective_timeout_secs(GEMINI_DEFAULT_TIMEOUT_SECS);
+
+    println!();
+    println!("Configuration options (current effective values):");
+    println!(
+        "  {:<8} {:<16} moeb adapter gemini config MODEL <value>",
+        "MODEL", model
+    );
+    println!(
+        "  {:<8} {:<16} moeb adapter gemini config RETRIES <count>",
+        "RETRIES", retries
+    );
+    println!(
+        "  {:<8} {:<16} moeb adapter gemini config TIMEOUT <seconds>",
+        "TIMEOUT", timeout
+    );
+    println!();
+    println!("To remove credentials: moeb adapter gemini release");
 }
 
 pub fn print_ollama_config_summary(config: &MoebConfig) {
